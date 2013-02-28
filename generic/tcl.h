@@ -868,6 +868,9 @@ int		Tcl_IsShared(Tcl_Obj *objPtr);
  * typically allocated on the stack.
  */
 
+#if defined(TCL_NO_DEPRECATED) && defined(USE_TCL_STUBS)
+typedef Tcl_Obj *Tcl_SavedResult;
+#else
 typedef struct Tcl_SavedResult {
     char *result;
     Tcl_FreeProc *freeProc;
@@ -877,6 +880,7 @@ typedef struct Tcl_SavedResult {
     int appendUsed;
     char resultSpace[TCL_RESULT_SIZE+1];
 } Tcl_SavedResult;
+#endif
 
 /*
  *----------------------------------------------------------------------------
