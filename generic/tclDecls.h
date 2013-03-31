@@ -3809,6 +3809,54 @@ extern const TclStubs *tclStubsPtr;
 #undef Tcl_SeekOld
 #undef Tcl_TellOld
 
+#undef Tcl_PkgPresent
+#define Tcl_PkgPresent(interp, name, version, exact) \
+	Tcl_PkgPresentEx(interp, name, version, exact, NULL)
+#undef Tcl_PkgProvide
+#define Tcl_PkgProvide(interp, name, version) \
+	Tcl_PkgProvideEx(interp, name, version, NULL)
+#undef Tcl_PkgRequire
+#define Tcl_PkgRequire(interp, name, version, exact) \
+	Tcl_PkgRequireEx(interp, name, version, exact, NULL)
+#undef Tcl_GetIndexFromObj
+#define Tcl_GetIndexFromObj(interp, objPtr, tablePtr, msg, flags, indexPtr) \
+	Tcl_GetIndexFromObjStruct(interp, objPtr, tablePtr, \
+	sizeof(char *), msg, flags, indexPtr)
+#undef Tcl_NewIntObj
+#define Tcl_NewIntObj Tcl_NewLongObj
+#undef Tcl_SetIntObj
+#define Tcl_SetIntObj Tcl_SetLongObj
+#undef Tcl_NewBooleanObj
+#define Tcl_NewBooleanObj(boolValue) \
+	Tcl_NewLongObj((boolValue)!=0)
+#undef Tcl_DbNewBooleanObj
+#define Tcl_DbNewBooleanObj(boolValue, file, line) \
+	Tcl_DbNewLongObj((boolValue)!=0, file, line)
+#undef Tcl_SetBooleanObj
+#define Tcl_SetBooleanObj(objPtr, boolValue) \
+	Tcl_SetLongObj(objPtr, (boolValue)!=0)
+#undef Tcl_SetVar
+#define Tcl_SetVar(interp, varName, newValue, flags) \
+	Tcl_SetVar2(interp, varName, NULL, newValue, flags)
+#undef Tcl_UnsetVar
+#define Tcl_UnsetVar(interp, varName, flags) \
+	Tcl_UnsetVar2(interp, varName, NULL, flags)
+#undef Tcl_GetVar
+#define Tcl_GetVar(interp, varName, flags) \
+	Tcl_GetVar2(interp, varName, NULL, flags)
+#undef Tcl_TraceVar
+#define Tcl_TraceVar(interp, varName, flags, proc, clientData) \
+	Tcl_TraceVar2(interp, varName, NULL, flags, proc, clientData)
+#undef Tcl_UntraceVar
+#define Tcl_UntraceVar(interp, varName, flags, proc, clientData) \
+	Tcl_UntraceVar2(interp, varName, NULL, flags, proc, clientData)
+#undef Tcl_VarTraceInfo
+#define Tcl_VarTraceInfo(interp, varName, flags, proc, prevClientData) \
+	Tcl_VarTraceInfo2(interp, varName, NULL, flags, proc, prevClientData)
+#undef Tcl_UpVar
+#define Tcl_UpVar(interp, frameName, varName, localName, flags) \
+	Tcl_UpVar2(interp, frameName, varName, NULL, localName, flags)
+
 /*
  * Deprecated Tcl procedures:
  */
