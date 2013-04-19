@@ -3857,16 +3857,46 @@ extern const TclStubs *tclStubsPtr;
 #define Tcl_UpVar(interp, frameName, varName, localName, flags) \
 	Tcl_UpVar2(interp, frameName, varName, NULL, localName, flags)
 
+#ifndef TCL_NO_DEPRECATED
+#undef Tcl_Eval
+#define Tcl_Eval(interp,objPtr) \
+       Tcl_EvalEx(interp,objPtr,-1,0)
+#undef Tcl_GlobalEval
+#define Tcl_GlobalEval(interp,objPtr) \
+       Tcl_EvalEx(interp,objPtr,-1,TCL_EVAL_GLOBAL)
+#undef Tcl_AddErrorInfo
+#define Tcl_AddErrorInfo(interp, message) \
+       Tcl_AppendObjToErrorInfo(interp, Tcl_NewStringObj(message, -1))
+#undef Tcl_AddObjErrorInfo
+#define Tcl_AddObjErrorInfo(interp, message, length) \
+       Tcl_AppendObjToErrorInfo(interp, Tcl_NewStringObj(message, length))
+#undef Tcl_SaveResult
+#define Tcl_SaveResult(interp, statePtr) \
+	do { \
+	    (statePtr)->objResultPtr = Tcl_GetObjResult(interp); \
+	    Tcl_IncrRefCount((statePtr)->objResultPtr); \
+	    Tcl_SetObjResult((interp), Tcl_NewObj()); \
+	} while(0)
+#undef Tcl_RestoreResult
+#define Tcl_RestoreResult(interp, statePtr) \
+	do { \
+	    Tcl_ResetResult(interp); \
+	    Tcl_SetObjResult((interp), (statePtr)->objResultPtr); \
+	    Tcl_DecrRefCount((statePtr)->objResultPtr); \
+	} while(0)
+#undef Tcl_DiscardResult
+#define Tcl_DiscardResult(statePtr) \
+	Tcl_DecrRefCount((statePtr)->objResultPtr)
+#endif /* TCL_NO_DEPRECATED */
+
 /*
  * Deprecated Tcl procedures:
  */
-#if defined(USE_TCL_STUBS) && !defined(USE_TCL_STUB_PROCS)
-#   undef Tcl_EvalObj
-#   define Tcl_EvalObj(interp,objPtr) \
-	Tcl_EvalObjEx((interp),(objPtr),0)
-#   undef Tcl_GlobalEvalObj
-#   define Tcl_GlobalEvalObj(interp,objPtr) \
-	Tcl_EvalObjEx((interp),(objPtr),TCL_EVAL_GLOBAL)
-#endif
+#undef Tcl_EvalObj
+#define Tcl_EvalObj(interp,objPtr) \
+    Tcl_EvalObjEx((interp),(objPtr),0)
+#undef Tcl_GlobalEvalObj
+#define Tcl_GlobalEvalObj(interp,objPtr) \
+    Tcl_EvalObjEx((interp),(objPtr),TCL_EVAL_GLOBAL)
 
 #endif /* _TCLDECLS */
