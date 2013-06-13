@@ -2414,9 +2414,9 @@ const char *		TclTomMathInitializeStubs(Tcl_Interp *interp,
 /* Tcl_InitSubsystems, see TIP #414 */
 
 #ifdef USE_TCL_STUBS
-EXTERN Tcl_Interp *Tcl_InitSubsystems(Tcl_PanicProc *panicProc);
+EXTERN const char *Tcl_InitSubsystems(Tcl_PanicProc *panicProc);
 #define Tcl_InitSubsystems(panicProc) \
-    Tcl_InitStubs((Tcl_InitSubsystems)(panicProc), NULL, 0)
+    Tcl_InitStubs((Tcl_Interp *)(Tcl_InitSubsystems)(panicProc), NULL, 0)
 #else
 EXTERN const char *Tcl_InitSubsystems(Tcl_PanicProc *panicProc);
 #endif
