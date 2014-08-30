@@ -650,6 +650,19 @@ InstructionDesc const tclInstructionTable[] = {
 	 * satisfy the class check (standard definition of "all").
 	 * Stack:  ... stringValue => ... boolean */
 
+    {"lappendList",	 5,	0,	1,	{OPERAND_LVT4}},
+	/* Lappend list to scalar variable at op4 in frame.
+	 * Stack:  ... list => ... listVarContents */
+    {"lappendListArray", 5,	-1,	1,	{OPERAND_LVT4}},
+	/* Lappend list to array element; array at op4.
+	 * Stack:  ... elem list => ... listVarContents */
+    {"lappendListArrayStk", 1,	-2,	0,	{OPERAND_NONE}},
+	/* Lappend list to array element.
+	 * Stack:  ... arrayName elem list => ... listVarContents */
+    {"lappendListStk",	 1,	-1,	0,	{OPERAND_NONE}},
+	/* Lappend list to general variable.
+	 * Stack:  ... varName list => ... listVarContents */
+
     {NULL, 0, 0, 0, {OPERAND_NONE}}
 };
 
@@ -5318,7 +5331,7 @@ PrintSourceToObj(
     int maxChars)		/* Maximum number of chars to print. */
 {
     register const char *p;
-    register int i = 0;
+    register int i = 0, len;
 
     if (stringPtr == NULL) {
 	Tcl_AppendToObj(appendObj, "\"\"", -1);
@@ -5327,32 +5340,50 @@ PrintSourceToObj(
 
     Tcl_AppendToObj(appendObj, "\"", -1);
     p = stringPtr;
-    for (;  (*p != '\0') && (i < maxChars);  p++, i++) {
-	switch (*p) {
+    for (;  (*p != '\0') && (i < maxChars);  p+=len) {
+	Tcl_UniChar ch;
+
+	len = TclUtfToUniChar(p, &ch);
+	switch (ch) {
 	case '"':
 	    Tcl_AppendToObj(appendObj, "\\\"", -1);
+	    i += 2;
 	    continue;
 	case '\f':
 	    Tcl_AppendToObj(appendObj, "\\f", -1);
+	    i += 2;
 	    continue;
 	case '\n':
 	    Tcl_AppendToObj(appendObj, "\\n", -1);
+	    i += 2;
 	    continue;
 	case '\r':
 	    Tcl_AppendToObj(appendObj, "\\r", -1);
+	    i += 2;
 	    continue;
 	case '\t':
 	    Tcl_AppendToObj(appendObj, "\\t", -1);
+	    i += 2;
 	    continue;
 	case '\v':
 	    Tcl_AppendToObj(appendObj, "\\v", -1);
+	    i += 2;
 	    continue;
 	default:
-	    Tcl_AppendPrintfToObj(appendObj, "%c", *p);
+	    if (ch < 0x20 || ch >= 0x7f) {
+		Tcl_AppendPrintfToObj(appendObj, "\\u%04x", ch);
+		i += 6;
+	    } else {
+		Tcl_AppendPrintfToObj(appendObj, "%c", ch);
+		i++;
+	    }
 	    continue;
 	}
     }
     Tcl_AppendToObj(appendObj, "\"", -1);
+    if (*p != '\0') {
+	Tcl_AppendToObj(appendObj, "...", -1);
+    }
 }
 
 #ifdef TCL_COMPILE_STATS

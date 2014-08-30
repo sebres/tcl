@@ -1335,8 +1335,11 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 TCL_VERSION=8.6
 TCL_MAJOR_VERSION=8
 TCL_MINOR_VERSION=6
-TCL_PATCH_LEVEL=".1"
+TCL_PATCH_LEVEL=".2"
 VERSION=${TCL_VERSION}
+
+EXTRA_INSTALL_BINARIES=${EXTRA_INSTALL_BINARIES:-"@:"}
+EXTRA_BUILD_HTML=${EXTRA_BUILD_HTML:-"@:"}
 
 #------------------------------------------------------------------------
 # Setup configure arguments for bundled packages
@@ -7008,6 +7011,7 @@ fi
 	    TCL_NEEDS_EXP_FILE=1
 	    TCL_EXPORT_FILE_SUFFIX='${VERSION}\$\{DBGX\}.dll.a'
 	    TCL_SHLIB_LD_EXTRAS='-Wl,--out-implib,$@.a'
+	    TK_SHLIB_LD_EXTRAS='-Wl,--out-implib,$@.a'
 	    echo "$as_me:$LINENO: checking for Cygwin version of gcc" >&5
 echo $ECHO_N "checking for Cygwin version of gcc... $ECHO_C" >&6
 if test "${ac_cv_cygwin+set}" = set; then
@@ -7078,9 +7082,9 @@ echo "$as_me: error: CYGWIN compile is only supported with --enable-threads" >&2
 	    fi
 	    do64bit_ok=yes
 	    if test "x${SHARED_BUILD}" = "x1"; then
-		echo "running cd ../win; ${CONFIG_SHELL-/bin/sh} ./configure $ac_configure_args"
+		echo "running cd ${TCL_SRC_DIR}/win; ${CONFIG_SHELL-/bin/sh} ./configure $ac_configure_args"
 		# The eval makes quoting arguments work.
-		if cd ../win; eval ${CONFIG_SHELL-/bin/sh} ./configure $ac_configure_args; cd ../unix
+		if cd ${TCL_SRC_DIR}/win; eval ${CONFIG_SHELL-/bin/sh} ./configure $ac_configure_args; cd ../unix
 		then :
 		else
 		    { echo "configure: error: configure failed for ../win" 1>&2; exit 1; }
@@ -7741,6 +7745,7 @@ fi
 	    SHLIB_CFLAGS="-fPIC"
 	    SHLIB_LD="${CC} -shared"
 	    TCL_SHLIB_LD_EXTRAS="-Wl,-soname=\$@"
+	    TK_SHLIB_LD_EXTRAS="-Wl,-soname,\$@"
 	    SHLIB_SUFFIX=".so"
 	    DL_OBJS="tclLoadDl.o"
 	    DL_LIBS=""
@@ -7759,11 +7764,15 @@ fi
 		LDFLAGS="$LDFLAGS $PTHREAD_LIBS"
 fi
 
-	    # Version numbers are dot-stripped by system policy.
-	    TCL_TRIM_DOTS=`echo ${VERSION} | tr -d .`
-	    UNSHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}.a'
-	    SHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}\$\{DBGX\}.so.1'
-	    TCL_LIB_VERSIONS_OK=nodots
+	    case $system in
+	    FreeBSD-3.*)
+		# Version numbers are dot-stripped by system policy.
+		TCL_TRIM_DOTS=`echo ${VERSION} | tr -d .`
+		UNSHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}.a'
+		SHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}.so'
+		TCL_LIB_VERSIONS_OK=nodots
+		;;
+	    esac
 	    ;;
 	Darwin-*)
 	    CFLAGS_OPTIMIZE="-Os"

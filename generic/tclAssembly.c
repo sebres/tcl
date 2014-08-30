@@ -50,7 +50,7 @@ typedef enum BasicBlockCatchState {
     BBCS_UNKNOWN = 0,		/* Catch context has not yet been identified */
     BBCS_NONE,			/* Block is outside of any catch */
     BBCS_INCATCH,		/* Block is within a catch context */
-    BBCS_CAUGHT,		/* Block is within a catch context and
+    BBCS_CAUGHT 		/* Block is within a catch context and
 				 * may be executed after an exception fires */
 } BasicBlockCatchState;
 
@@ -121,7 +121,7 @@ enum BasicBlockFlags {
 				 * marking it as the start of a 'catch'
 				 * sequence. The 'jumpTarget' is the exception
 				 * exit from the catch block. */
-    BB_ENDCATCH = (1 << 5),	/* Block ends with an 'endCatch' instruction,
+    BB_ENDCATCH = (1 << 5)	/* Block ends with an 'endCatch' instruction,
 				 * unwinding the catch from the exception
 				 * stack. */
 };
@@ -184,7 +184,7 @@ typedef enum TalInstType {
 				 * produces N */
     ASSEM_SINT1,		/* One 1-byte signed-integer operand
 				 * (INCR_STK_IMM) */
-    ASSEM_SINT4_LVT4,		/* Signed 4-byte integer operand followed by
+    ASSEM_SINT4_LVT4		/* Signed 4-byte integer operand followed by
 				 * LVT entry.  Fixed arity */
 } TalInstType;
 
@@ -410,6 +410,10 @@ static const TalInstDesc TalInstructionTable[] = {
     {"lappendArray",	ASSEM_LVT,	(INST_LAPPEND_ARRAY1<<8
 					 | INST_LAPPEND_ARRAY4),2,	1},
     {"lappendArrayStk", ASSEM_1BYTE,	INST_LAPPEND_ARRAY_STK,	3,	1},
+    {"lappendList",	ASSEM_LVT4,	INST_LAPPEND_LIST,	1,	1},
+    {"lappendListArray",ASSEM_LVT4,	INST_LAPPEND_LIST_ARRAY,2,	1},
+    {"lappendListArrayStk", ASSEM_1BYTE,INST_LAPPEND_LIST_ARRAY_STK, 3,	1},
+    {"lappendListStk",	ASSEM_1BYTE,	INST_LAPPEND_LIST_STK,	2,	1},
     {"lappendStk",	ASSEM_1BYTE,	INST_LAPPEND_STK,	2,	1},
     {"le",		ASSEM_1BYTE,	INST_LE,		2,	1},
     {"lindexMulti",	ASSEM_LINDEX_MULTI,
