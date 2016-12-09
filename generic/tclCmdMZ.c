@@ -3984,7 +3984,7 @@ Tcl_TimeObjCmd(
     start = TclpGetWideClicks();
 #endif
     while (i-- > 0) {
-	result = Tcl_EvalObjEx(interp, objPtr, 0);
+	result = TclEvalObjEx(interp, objPtr, 0, NULL, 0);
 	if (result != TCL_OK) {
 	    return result;
 	}
@@ -4018,6 +4018,150 @@ Tcl_TimeObjCmd(
     TclNewLiteralStringObj(objs[3], "iteration");
     Tcl_SetObjResult(interp, Tcl_NewListObj(4, objs));
 
+    return TCL_OK;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Tcl_TimeRateObjCmd --
+ *
+ *	This object-based procedure is invoked to process the "timerate" Tcl
+ *	command. 
+ *	This is similar to command "time", except the execution limited by 
+ *	given time (in milliseconds) instead of repetition count.
+ *
+ * Example:
+ *	timerate {after 5} 1000 ; # equivalent for `time {after 5} [expr 1000/5]`
+ *
+ * Results:
+ *	A standard Tcl object result.
+ *
+ * Side effects:
+ *	See the user documentation.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+Tcl_TimeRateObjCmd(
+    ClientData dummy,		/* Not used. */
+    Tcl_Interp *interp,		/* Current interpreter. */
+    int objc,			/* Number of arguments. */
+    Tcl_Obj *const objv[])	/* Argument objects. */
+{
+    register Tcl_Obj *objPtr;
+    register int result;
+    Tcl_WideInt count = 0;      /* Holds repetition count */
+    Tcl_WideInt maxms;          /* Maximal running time (in milliseconds) */
+    Tcl_WideInt threshold = 1;  /* Current threshold for check time (faster
+                                 * repeat count without time check) */
+    Tcl_WideInt maxIterTm = 1;  /* Max time of some iteration as max threshold
+                                 * additionally avoid divide to zero (never < 1) */
+    Tcl_WideInt start, middle, stop;
+#ifndef TCL_WIDE_CLICKS
+    Tcl_Time now;
+#endif
+
+    if (objc == 2) {
+	maxms = 1000;
+    } else if (objc == 3) {
+	result = TclGetWideIntFromObj(interp, objv[2], &maxms);
+	if (result != TCL_OK) {
+	    return result;
+	}
+    } else {
+	Tcl_WrongNumArgs(interp, 1, objv, "command ?time?");
+	return TCL_ERROR;
+    }
+
+    objPtr = objv[1];
+#ifndef TCL_WIDE_CLICKS
+    Tcl_GetTime(&now);
+    start = now.sec * 1000000 + now.usec;
+#else
+    start = TclpGetWideClicks();
+#endif
+    stop = start + maxms * 1000;
+    middle = start;
+    while (1) {
+    	count++;
+	result = TclEvalObjEx(interp, objPtr, 0, NULL, 0);
+	if (result != TCL_OK) {
+	    return result;
+	}
+	
+	/* don't check time up to threshold */
+	if (--threshold > 0) continue;
+
+	/* check stop time reached, estimate new threshold */
+	threshold = middle;
+    #ifndef TCL_WIDE_CLICKS
+	Tcl_GetTime(&now);
+	middle = now.sec * 1000000 + now.usec;
+    #else
+	middle = TclpGetWideClicks();
+    #endif
+	if (middle >= stop) {
+	    break;
+	}
+	threshold = (middle - threshold);  /* time since last check in microsecs */
+	if (threshold > maxIterTm) {
+	    maxIterTm = threshold;
+	}
+	/* as relation between remaining time and time since last check */
+	threshold = ((stop - middle) / maxIterTm) / 4; 
+	if (threshold > 50000) {           /* fix for too large threshold */
+	    threshold = 50000;
+	}
+    }
+
+    if (1) {
+	Tcl_Obj *objs[6];
+	Tcl_WideInt val;
+	const char *fmt;
+
+	middle -= start;                     /* execution time in microsecs */
+	val = middle / count;                /* microsecs per iteration */
+	if (val >= 1000000) {
+	    objs[0] = Tcl_NewWideIntObj(val);
+	} else {
+	    if (val < 10)    { fmt = "%.6f"; } else
+	    if (val < 100)   { fmt = "%.4f"; } else
+	    if (val < 1000)  { fmt = "%.3f"; } else
+	    if (val < 10000) { fmt = "%.2f"; } else
+	                     { fmt = "%.1f"; };
+	    objs[0] = Tcl_ObjPrintf(fmt, ((double)middle)/count);
+	}
+
+	objs[2] = Tcl_NewWideIntObj(count); /* iterations */
+	
+	/* calculate speed as rate (count) per sec */
+	if (!middle) middle++; /* +1 ms, just to avoid divide by zero */
+	if (count < (0X7FFFFFFFFFFFFFFFL / 1000000)) {
+	    val = (count * 1000000) / middle;
+	    if (val < 100000) {
+		if (val < 100)  { fmt = "%.3f"; } else
+		if (val < 1000) { fmt = "%.2f"; } else
+		                { fmt = "%.1f"; };
+		objs[4] = Tcl_ObjPrintf(fmt, ((double)(count * 1000000)) / middle);
+	    } else {
+		objs[4] = Tcl_NewWideIntObj(val);
+	    }
+	} else {
+	    objs[4] = Tcl_NewWideIntObj((count / middle) * 1000000);
+	}
+
+	/*
+	* Construct the result as a list because many programs have always parsed
+	* as such (extracting the first element, typically).
+	*/
+
+	TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#,"); /* mics/# */
+	TclNewLiteralStringObj(objs[3], "#,");
+	TclNewLiteralStringObj(objs[5], "#/sec");
+	Tcl_SetObjResult(interp, Tcl_NewListObj(6, objs));
+    }
     return TCL_OK;
 }
 
