@@ -4273,8 +4273,8 @@ Tcl_TimeRateObjCmd(
 	}
 	/* as relation between remaining time and time since last check */
 	threshold = ((stop - middle) / maxIterTm) / 4; 
-	if (threshold > 50000) {           /* fix for too large threshold */
-	    threshold = 50000;
+	if (threshold > 5000) {           /* fix for too large threshold */
+	    threshold = 5000;
 	}
     }
 
