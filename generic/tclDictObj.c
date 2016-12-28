@@ -51,6 +51,8 @@ static int		DictSetCmd(ClientData dummy, Tcl_Interp *interp,
 			    int objc, Tcl_Obj *const *objv);
 static int		DictSizeCmd(ClientData dummy, Tcl_Interp *interp,
 			    int objc, Tcl_Obj *const *objv);
+static int		DictSmartRefCmd(ClientData dummy, Tcl_Interp *interp,
+			    int objc, Tcl_Obj *const *objv);
 static int		DictUnsetCmd(ClientData dummy, Tcl_Interp *interp,
 			    int objc, Tcl_Obj *const *objv);
 static int		DictUpdateCmd(ClientData dummy, Tcl_Interp *interp,
@@ -98,6 +100,7 @@ static const EnsembleImplMap implementationMap[] = {
     {"replace",	DictReplaceCmd, NULL, NULL, NULL, 0 },
     {"set",	DictSetCmd,	TclCompileDictSetCmd, NULL, NULL, 0 },
     {"size",	DictSizeCmd,	TclCompileBasic1ArgCmd, NULL, NULL, 0 },
+    {"smartref",DictSmartRefCmd,NULL, NULL, NULL, 0 },
     {"unset",	DictUnsetCmd,	TclCompileDictUnsetCmd, NULL, NULL, 0 },
     {"update",	DictUpdateCmd,	TclCompileDictUpdateCmd, NULL, NULL, 0 },
     {"values",	DictValuesCmd,	TclCompileBasic1Or2ArgCmd, NULL, NULL, 0 },
@@ -1955,6 +1958,77 @@ DictSizeCmd(
 	Tcl_SetObjResult(interp, Tcl_NewIntObj(size));
     }
     return result;
+}
+
+/*
+ *----------------------------------------------------------------------
+ */
+
+Tcl_Obj *
+Tcl_DictObjSmartRef(
+    Tcl_Interp *interp,
+    Tcl_Obj    *dictPtr)
+{
+    Tcl_Obj *result;
+    Dict    *dict;
+
+    if (dictPtr->typePtr != &tclDictType
+	    && SetDictFromAny(interp, dictPtr) != TCL_OK) {
+	return NULL;
+    }
+
+    dict = DICT(dictPtr);
+
+    result = Tcl_NewObj();
+    DICT(result) = dict;
+    dict->refcount++;
+    result->internalRep.twoPtrValue.ptr2 = NULL;
+    result->typePtr = &tclDictType;
+
+    return result;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * DictSmartRefCmd --
+ *
+ *	This function implements the "dict smartref" Tcl command. See the user
+ *	documentation for details on what it does, and TIP#111 for the formal
+ *	specification.
+ *
+ * Results:
+ *	A standard Tcl result.
+ *
+ * Side effects:
+ *	See the user documentation.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static int
+DictSmartRefCmd(
+    ClientData dummy,
+    Tcl_Interp *interp,
+    int objc,
+    Tcl_Obj *const *objv)
+{
+    Tcl_Obj *result;
+    Dict    *dict;
+
+    if (objc != 2) {
+	Tcl_WrongNumArgs(interp, 1, objv, "dictionary");
+	return TCL_ERROR;
+    }
+
+    result = Tcl_DictObjSmartRef(interp, objv[1]);
+    if (result == NULL) {
+    	return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, result);
+
+    return TCL_OK;
 }
 
 /*
