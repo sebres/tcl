@@ -4220,7 +4220,7 @@ Tcl_TimeRateObjCmd(
                                  * repeat count without time check) */
     Tcl_WideInt maxIterTm = 1;  /* Max time of some iteration as max threshold
                                  * additionally avoid divide to zero (never < 1) */
-    Tcl_WideInt start, middle, stop;
+    register Tcl_WideInt start, middle, stop;
 #ifndef TCL_WIDE_CLICKS
     Tcl_Time now;
 #endif
@@ -4240,7 +4240,7 @@ Tcl_TimeRateObjCmd(
     objPtr = objv[1];
 #ifndef TCL_WIDE_CLICKS
     Tcl_GetTime(&now);
-    start = now.sec * 1000000 + now.usec;
+    start = now.sec; start *= 1000000; start += now.usec;
 #else
     start = TclpGetWideClicks();
 #endif
@@ -4257,22 +4257,22 @@ Tcl_TimeRateObjCmd(
 	if (--threshold > 0) continue;
 
 	/* check stop time reached, estimate new threshold */
-	threshold = middle;
     #ifndef TCL_WIDE_CLICKS
 	Tcl_GetTime(&now);
-	middle = now.sec * 1000000 + now.usec;
+	middle = now.sec; middle *= 1000000; middle += now.usec;
     #else
 	middle = TclpGetWideClicks();
     #endif
 	if (middle >= stop) {
 	    break;
 	}
-	threshold = (middle - threshold);  /* time since last check in microsecs */
+	/* average iteration time in microsecs */
+	threshold = (middle - start) / count;
 	if (threshold > maxIterTm) {
 	    maxIterTm = threshold;
 	}
 	/* as relation between remaining time and time since last check */
-	threshold = ((stop - middle) / maxIterTm) / 4; 
+	threshold = ((stop - middle) / maxIterTm) / 2;
 	if (threshold > 5000) {           /* fix for too large threshold */
 	    threshold = 5000;
 	}
