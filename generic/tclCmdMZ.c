@@ -17,6 +17,7 @@
  */
 
 #include "tclInt.h"
+#include "tclCompile.h"
 #include "tclRegexp.h"
 #include "tclStringTrim.h"
 
@@ -4050,6 +4051,7 @@ Tcl_TimeRateObjCmd(
     int objc,			/* Number of arguments. */
     Tcl_Obj *const objv[])	/* Argument objects. */
 {
+    static double measureOverhead = 0;
     register Tcl_Obj *objPtr;
     register int result;
     Tcl_WideInt count = 0;      /* Holds repetition count */
@@ -4062,6 +4064,9 @@ Tcl_TimeRateObjCmd(
 #ifndef TCL_WIDE_CLICKS
     Tcl_Time now;
 #endif
+
+    NRE_callback *rootPtr;
+    ByteCode     *codePtr;
 
     if (objc == 2) {
 	maxms = 1000;
@@ -4076,17 +4081,81 @@ Tcl_TimeRateObjCmd(
     }
 
     objPtr = objv[1];
+
+    /* if no command */
+    if (!*TclGetString(objPtr) && !objPtr->length) {
+	/* if calibration needed */
+	if (objc == 2 || maxms >= 10000) {
+	    Tcl_Obj *clobjv[3];
+	    
+	    /* reset last measurement overhead */
+	    measureOverhead = 0;
+
+	    clobjv[0] = objv[0]; clobjv[1] = objv[1]; 
+
+	    /* self-call with 250 milliseconds to warm-up,
+	     * before entering the calibration cycle */
+	    TclNewLongObj(clobjv[2], 250);
+	    Tcl_IncrRefCount(clobjv[2]);
+	    Tcl_TimeRateObjCmd(dummy, interp, 3, clobjv);    
+	    Tcl_DecrRefCount(clobjv[2]);
+
+	    /* set last measurement overhead to max */
+	    measureOverhead = (double)0X7FFFFFFF;
+
+	    if (objc == 2) {
+	    	Tcl_WideInt maxCalTime = 11000;
+	    	double lastMeasureOverhead;
+		/* calibration cycle until it'll be preciser */
+		maxms = 1000;
+		do {
+		    lastMeasureOverhead = measureOverhead;
+		    TclNewLongObj(clobjv[2], (int)maxms);
+		    Tcl_IncrRefCount(clobjv[2]);
+		    result = Tcl_TimeRateObjCmd(dummy, interp, 3, clobjv);
+		    Tcl_DecrRefCount(clobjv[2]);
+		    maxCalTime -= maxms;
+		    /* increase maxms for preciser calibration */
+		    maxms += (maxms / 4);
+		} while (measureOverhead < lastMeasureOverhead && maxCalTime > 0);
+
+		return result;
+	    }
+	}
+	else
+	if (maxms == 0) {
+	    /* reset last measurement overhead */
+	    measureOverhead = 0;
+	}
+    }
+
+    /* be sure that resetting of result will not smudge the further measurement */
+    Tcl_ResetResult(interp);
+
+    /* compile object */
+    if (TclInterpReady(interp) != TCL_OK) {
+	return TCL_ERROR;
+    }
+    codePtr = TclCompileObj(interp, objPtr, NULL, 0);
+
+    /* get start and stop time */
 #ifndef TCL_WIDE_CLICKS
     Tcl_GetTime(&now);
     start = now.sec; start *= 1000000; start += now.usec;
 #else
     start = TclpGetWideClicks();
 #endif
+
+    /* start measurement */
     stop = start + maxms * 1000;
     middle = start;
     while (1) {
+    	/* eval single iteration */
     	count++;
-	result = TclEvalObjEx(interp, objPtr, 0, NULL, 0);
+
+	rootPtr = TOP_CB(interp);
+	result = TclNRExecuteByteCode(interp, codePtr);
+	result = TclNRRunCallbacks(interp, result, rootPtr);
 	if (result != TCL_OK) {
 	    return result;
 	}
@@ -4111,17 +4180,39 @@ Tcl_TimeRateObjCmd(
 	}
 	/* as relation between remaining time and time since last check */
 	threshold = ((stop - middle) / maxIterTm) / 2;
-	if (threshold > 5000) {           /* fix for too large threshold */
-	    threshold = 5000;
+	if (threshold > 10000) {           /* fix for too large threshold */
+	    threshold = 10000;
 	}
     }
 
     if (1) {
-	Tcl_Obj *objs[6];
+	Tcl_Obj *objs[8];
 	Tcl_WideInt val;
 	const char *fmt;
 
+	objs[6] = NULL;
 	middle -= start;                     /* execution time in microsecs */
+
+	/* if not calibrate */
+	if (maxms < 1000 || *TclGetString(objPtr) || objPtr->length) {
+	    /* minimize influence of measurement overhead */
+	    if (measureOverhead > 0) {
+		Tcl_WideInt curOverhead = measureOverhead * count;
+		if (middle > curOverhead) {
+		    middle -= curOverhead;
+		} else {
+		    middle = 1;
+		}
+	    }
+	} else {
+	    /* calibration - obtaining new measurement overhead */
+	    if (measureOverhead > (double)middle / count) {
+		measureOverhead = (double)middle / count;
+	    }
+	    objs[6] = Tcl_NewDoubleObj(measureOverhead);
+	    TclNewLiteralStringObj(objs[7], "\xC2\xB5s/#-overhead"); /* mics */
+	}
+
 	val = middle / count;                /* microsecs per iteration */
 	if (val >= 1000000) {
 	    objs[0] = Tcl_NewWideIntObj(val);
@@ -4160,9 +4251,10 @@ Tcl_TimeRateObjCmd(
 	TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#,"); /* mics/# */
 	TclNewLiteralStringObj(objs[3], "#,");
 	TclNewLiteralStringObj(objs[5], "#/sec");
-	Tcl_SetObjResult(interp, Tcl_NewListObj(6, objs));
+	Tcl_SetObjResult(interp, Tcl_NewListObj((!objs[6]) ? 6 : 8, objs));
     }
-    return TCL_OK;
+
+    return result;
 }
 
 /*
