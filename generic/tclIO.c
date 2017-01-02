@@ -323,7 +323,7 @@ typedef struct ResolvedChanName {
     Tcl_Interp *interp;		/* The interp in which the lookup was done. */
     int epoch;			/* The epoch of the channel when the lookup
 				 * was done. Use to verify validity. */
-    int refCount;		/* Share this struct among many Tcl_Obj. */
+    size_t refCount;		/* Share this struct among many Tcl_Obj. */
 } ResolvedChanName;
 
 static void		DupChannelIntRep(Tcl_Obj *objPtr, Tcl_Obj *copyPtr);
@@ -7129,7 +7129,7 @@ Tcl_Tell(
  *
  * Tcl_SeekOld, Tcl_TellOld --
  *
- *	Backward-compatability versions of the seek/tell interface that do not
+ *	Backward-compatibility versions of the seek/tell interface that do not
  *	support 64-bit offsets. This interface is not documented or expected
  *	to be supported indefinitely.
  *
@@ -11194,7 +11194,7 @@ FreeChannelIntRep(
     ResolvedChanName *resPtr = objPtr->internalRep.twoPtrValue.ptr1;
 
     objPtr->typePtr = NULL;
-    if (--resPtr->refCount) {
+    if (resPtr->refCount-- > 1) {
 	return;
     }
     Tcl_Release(resPtr->statePtr);
