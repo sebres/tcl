@@ -4061,9 +4061,9 @@ Tcl_TimeRateObjCmd(
     Tcl_WideInt maxms = -0x7FFFFFFFFFFFFFFFL; 
 				/* Maximal running time (in milliseconds) */
     Tcl_WideInt threshold = 1;  /* Current threshold for check time (faster
-                                 * repeat count without time check) */
+				 * repeat count without time check) */
     Tcl_WideInt maxIterTm = 1;  /* Max time of some iteration as max threshold
-                                 * additionally avoid divide to zero (never < 1) */
+				 * additionally avoid divide to zero (never < 1) */
     register Tcl_WideInt start, middle, stop;
 #ifndef TCL_WIDE_CLICKS
     Tcl_Time now;
@@ -4302,7 +4302,7 @@ usage:
 	    if (val < 100)   { fmt = "%.4f"; } else
 	    if (val < 1000)  { fmt = "%.3f"; } else
 	    if (val < 10000) { fmt = "%.2f"; } else
-	                     { fmt = "%.1f"; };
+			     { fmt = "%.1f"; };
 	    objs[0] = Tcl_ObjPrintf(fmt, ((double)middle)/count);
 	}
 
@@ -4315,7 +4315,7 @@ usage:
 	    if (val < 100000) {
 		if (val < 100)  { fmt = "%.3f"; } else
 		if (val < 1000) { fmt = "%.2f"; } else
-		                { fmt = "%.1f"; };
+				{ fmt = "%.1f"; };
 		objs[4] = Tcl_ObjPrintf(fmt, ((double)(count * 1000000)) / middle);
 	    } else {
 		objs[4] = Tcl_NewWideIntObj(val);
