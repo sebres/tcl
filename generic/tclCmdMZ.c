@@ -4093,9 +4093,9 @@ Tcl_TimeRateObjCmd(
 
 	    clobjv[0] = objv[0]; clobjv[1] = objv[1]; 
 
-	    /* self-call with 250 milliseconds to warm-up,
+	    /* self-call with 100 milliseconds to warm-up,
 	     * before entering the calibration cycle */
-	    TclNewLongObj(clobjv[2], 250);
+	    TclNewLongObj(clobjv[2], 100);
 	    Tcl_IncrRefCount(clobjv[2]);
 	    Tcl_TimeRateObjCmd(dummy, interp, 3, clobjv);    
 	    Tcl_DecrRefCount(clobjv[2]);
@@ -4117,7 +4117,11 @@ Tcl_TimeRateObjCmd(
 		    maxCalTime -= maxms;
 		    /* increase maxms for preciser calibration */
 		    maxms += (maxms / 4);
-		} while (measureOverhead < lastMeasureOverhead && maxCalTime > 0);
+		} while (  measureOverhead < lastMeasureOverhead
+			&& (int)(measureOverhead * 10000) != 
+			   (int)(lastMeasureOverhead * 10000)
+			&& maxCalTime > 0
+		);
 
 		return result;
 	    }
@@ -4179,9 +4183,9 @@ Tcl_TimeRateObjCmd(
 	    maxIterTm = threshold;
 	}
 	/* as relation between remaining time and time since last check */
-	threshold = ((stop - middle) / maxIterTm) / 2;
-	if (threshold > 10000) {           /* fix for too large threshold */
-	    threshold = 10000;
+	threshold = ((stop - middle) / maxIterTm) / 4;
+	if (threshold > 100000) {           /* fix for too large threshold */
+	    threshold = 100000;
 	}
     }
 
