@@ -4278,6 +4278,7 @@ usage:
 	if (!calibrate) {
 	    /* minimize influence of measurement overhead */
 	    if (overhead > 0) {
+		/* estimate the time of overhead (microsecs) */
 		Tcl_WideInt curOverhead = overhead * count;
 		if (middle > curOverhead) {
 		    middle -= curOverhead;
@@ -4291,7 +4292,7 @@ usage:
 		measureOverhead = (double)middle / count;
 	    }
 	    objs[0] = Tcl_NewDoubleObj(measureOverhead);
-	    TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#-overhead,"); /* mics */
+	    TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#-overhead"); /* mics */
 	    objs += 2;
 	}
 
@@ -4325,15 +4326,21 @@ usage:
 	    objs[4] = Tcl_NewWideIntObj((count / middle) * 1000000);
 	}
 
+	/* estimated net execution time (in millisecs) */
+	if (!calibrate) {
+	    objs[6] = Tcl_ObjPrintf("%.3f", (double)middle / 1000);
+	    TclNewLiteralStringObj(objs[7], "nett-ms");
+	}
+
 	/*
 	* Construct the result as a list because many programs have always parsed
 	* as such (extracting the first element, typically).
 	*/
 
-	TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#,"); /* mics/# */
-	TclNewLiteralStringObj(objs[3], "#,");
+	TclNewLiteralStringObj(objs[1], "\xC2\xB5s/#"); /* mics/# */
+	TclNewLiteralStringObj(objs[3], "#");
 	TclNewLiteralStringObj(objs[5], "#/sec");
-	Tcl_SetObjResult(interp, Tcl_NewListObj((!calibrate) ? 6 : 8, objarr));
+	Tcl_SetObjResult(interp, Tcl_NewListObj(8, objarr));
     }
 
 done:
