@@ -4211,6 +4211,7 @@ usage:
 	    return TCL_ERROR;
 	}
 	codePtr = TclCompileObj(interp, objPtr, NULL, 0);
+	TclPreserveByteCode(codePtr);
     }
 
     /* get start and stop time */
@@ -4238,7 +4239,7 @@ usage:
 	    result = TclEvalObjEx(interp, objPtr, 0, NULL, 0);
 	}
 	if (result != TCL_OK) {
-	    return result;
+	    goto done;
 	}
 	
 	/* don't check time up to threshold */
@@ -4333,6 +4334,12 @@ usage:
 	TclNewLiteralStringObj(objs[3], "#,");
 	TclNewLiteralStringObj(objs[5], "#/sec");
 	Tcl_SetObjResult(interp, Tcl_NewListObj((!calibrate) ? 6 : 8, objarr));
+    }
+
+done:
+
+    if (codePtr != NULL) {
+	TclReleaseByteCode(codePtr);
     }
 
     return result;
