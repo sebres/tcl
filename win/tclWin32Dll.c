@@ -116,7 +116,9 @@ static TclWinProcs asciiProcs = {
     /* ReadConsole and WriteConsole */
     (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPVOID)) ReadConsoleA,
     (BOOL (WINAPI *)(HANDLE, const VOID*, DWORD, LPDWORD, LPVOID)) WriteConsoleA,
-    (BOOL (WINAPI *)(LPTSTR, LPDWORD)) GetUserNameA
+    (BOOL (WINAPI *)(LPTSTR, LPDWORD)) GetUserNameA,
+    /* Windows version dependend functions */
+    NULL
 };
 
 static TclWinProcs unicodeProcs = {
@@ -175,7 +177,9 @@ static TclWinProcs unicodeProcs = {
     /* ReadConsole and WriteConsole */
     (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPVOID)) ReadConsoleW,
     (BOOL (WINAPI *)(HANDLE, const VOID*, DWORD, LPDWORD, LPVOID)) WriteConsoleW,
-    (BOOL (WINAPI *)(LPTSTR, LPDWORD)) GetUserNameW
+    (BOOL (WINAPI *)(LPTSTR, LPDWORD)) GetUserNameW,
+    /* Windows version dependend functions */
+    NULL
 };
 
 TclWinProcs *tclWinProcs;
@@ -448,7 +452,9 @@ TclWinInit(
 	Tcl_Panic("Win32s is not a supported platform");
     }
 
-    tclWinProcs = &asciiProcs;
+    /* Initialize tclWinProcs as &asciiProcs (can later switch to &unicodeProcs
+     * within Tcl_FindExecutable) */
+    TclWinSetInterfaces(0);
 }
 
 /*
@@ -613,6 +619,8 @@ TclWinSetInterfaces(
     int wide)			/* Non-zero to use wide interfaces, 0
 				 * otherwise. */
 {
+    HMODULE kernHandle = NULL;
+
     Tcl_FreeEncoding(tclWinTCharEncoding);
 
     if (wide) {
@@ -620,6 +628,7 @@ TclWinSetInterfaces(
 	tclWinTCharEncoding = Tcl_GetEncoding(NULL, "unicode");
 	if (tclWinProcs->getFileAttributesExProc == NULL) {
 	    HMODULE handle = GetModuleHandle(TEXT("KERNEL32"));
+	    kernHandle = handle;
 	    tclWinProcs->getFileAttributesExProc =
 		    (BOOL (WINAPI *)(CONST TCHAR *, GET_FILEEX_INFO_LEVELS,
 		    LPVOID)) GetProcAddress(handle,
@@ -673,6 +682,7 @@ TclWinSetInterfaces(
 	tclWinTCharEncoding = NULL;
 	if (tclWinProcs->getFileAttributesExProc == NULL) {
 	    HMODULE handle = GetModuleHandle(TEXT("KERNEL32"));
+	    kernHandle = handle;
 	    tclWinProcs->getFileAttributesExProc =
 		    (BOOL (WINAPI *)(CONST TCHAR *, GET_FILEEX_INFO_LEVELS,
 		    LPVOID)) GetProcAddress(handle,
@@ -699,6 +709,13 @@ TclWinSetInterfaces(
 		    DWORD)) GetProcAddress(handle,
 		    "GetVolumeNameForVolumeMountPointA");
 	}
+    }
+
+    /* Windows version dependend functions */
+    if (kernHandle != NULL) {
+	tclWinProcs->cancelSynchronousIo = 
+	    (BOOL (WINAPI *)(HANDLE)) GetProcAddress(kernHandle,
+	    "CancelSynchronousIo");
     }
 }
 

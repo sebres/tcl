@@ -166,6 +166,10 @@ typedef struct TclWinProcs {
       LPVOID lpReserved
     );
     BOOL (WINAPI *getUserName)(LPTSTR lpBuffer, LPDWORD lpnSize);
+    /*
+     * Windows version dependend functions
+     */
+    BOOL (WINAPI *cancelSynchronousIo)(HANDLE);
 } TclWinProcs;
 
 MODULE_SCOPE TclWinProcs *tclWinProcs;
@@ -207,5 +211,120 @@ MODULE_SCOPE const char*TclpGetUserName(Tcl_DString *bufferPtr);
 #ifndef FILE_ATTRIBUTE_REPARSE_POINT
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400
 #endif
+
+
+/*
+ * Windows specified thread declarations.
+ * 
+ * Prevent runtime error R6016 (not enough space for thread data). See section
+ * "Remarks" in https://msdn.microsoft.com/en-us/library/windows/desktop/ms682453(v=vs.85).aspx
+ */
+
+static inline HANDLE
+TclWinThreadCreate(
+    Tcl_ThreadId *idPtr,	/* Return, the ID of the thread. */
+    LPTHREAD_START_ROUTINE proc,/* Main() function of the thread. */
+    ClientData clientData,	/* The one argument to Main(). */
+    int stackSize)		/* Size of stack for the new thread. */
+{
+
+    if (idPtr) {
+	*idPtr = 0; /* must initialize as Tcl_Thread is a pointer and
+		     * on WIN64 sizeof void* != sizeof unsigned */
+    }
+    /*
+     * Threads that calls CRT, should use the _beginthreadex and _endthreadex
+     * functions for thread management rather than CreateThread and ExitThread.
+     * WARNING: If a thread created using CreateThread calls the CRT, the CRT
+     * may terminate the process in low-memory conditions.
+     */
+#if defined(_MSC_VER) || defined(__MSVCRT__) || defined(__BORLANDC__)
+    return (HANDLE) _beginthreadex(NULL, (unsigned) stackSize,
+	proc, clientData, 0, (unsigned *)idPtr);
+#else
+    return CreateThread(NULL, (DWORD) stackSize,
+	proc, clientData, 0, (LPDWORD)idPtr);
+#endif
+}
+
+static void
+TclWinThreadExit(int status)
+{
+#if defined(_MSC_VER) || defined(__MSVCRT__) || defined(__BORLANDC__)
+    _endthreadex((unsigned) status);
+#else
+    ExitThread((DWORD) status);
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ * Declarations of helper-workers threaded facilities for a pipe based channel.
+ * 
+ * Corresponding functionality provided in "tclWinPipe.c".
+ *----------------------------------------------------------------------
+ */
+
+typedef struct TclPipeThreadInfo {
+    HANDLE evControl;		/* Auto-reset event used by the main thread to
+				 * signal when the pipe thread should attempt 
+				 * to do read/write operation. Additionally
+				 * used as signal to stop (state set to -1) */
+    volatile LONG state;	/* Indicates current state of the thread */
+    ClientData clientData;	/* Referenced data of the main thread */
+    HANDLE evWakeUp;		/* Optional wake-up event worker set by shutdown */
+} TclPipeThreadInfo;
+
+
+/* If pipe-workers will use some tcl subsystem, we can use ckalloc without
+ * more overhead for finalize thread (should be executed anyway)
+ *
+ * #define _PTI_USE_CKALLOC 1
+ */
+
+/*
+ * State of the pipe-worker.
+ * 
+ * State PTI_STATE_STOP possible from idle state only, worker owns TI structure.
+ * Otherwise PTI_STATE_END used (main thread hold ownership of the TI).
+ */
+
+#define PTI_STATE_IDLE	0	/* idle or not yet initialzed */
+#define PTI_STATE_WORK	1	/* in work */
+#define PTI_STATE_STOP	2	/* thread should stop work (owns TI structure) */
+#define PTI_STATE_END	4	/* thread should stop work (worker is busy) */
+#define PTI_STATE_DOWN  8	/* worker is down */
+
+
+MODULE_SCOPE 
+TclPipeThreadInfo *	TclPipeThreadCreateTI(TclPipeThreadInfo **pipeTIPtr, 
+			    ClientData clientData, HANDLE wakeEvent);
+MODULE_SCOPE HANDLE	TclPipeThreadCreate(TclPipeThreadInfo **pipeTIPtr,
+			    LPTHREAD_START_ROUTINE proc, ClientData clientData,
+			    HANDLE wakeEvent);
+
+MODULE_SCOPE int	TclPipeThreadWaitForSignal(TclPipeThreadInfo **pipeTIPtr);
+
+static inline void
+TclPipeThreadSignal(
+    TclPipeThreadInfo **pipeTIPtr)
+{
+    TclPipeThreadInfo *pipeTI = *pipeTIPtr;
+    if (pipeTI) {
+	SetEvent(pipeTI->evControl);
+    }
+};
+
+static inline int
+TclPipeThreadIsAlive(
+    TclPipeThreadInfo **pipeTIPtr)
+{
+    TclPipeThreadInfo *pipeTI = *pipeTIPtr;
+    return (pipeTI && pipeTI->state != PTI_STATE_DOWN);
+};
+
+MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr, HANDLE wakeEvent);
+MODULE_SCOPE void	TclPipeThreadStop(TclPipeThreadInfo **pipeTIPtr, HANDLE hThread);
+MODULE_SCOPE void	TclPipeThreadExit(TclPipeThreadInfo **pipeTIPtr);
 
 #endif	/* _TCLWININT */

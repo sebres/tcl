@@ -10,7 +10,7 @@
  * this file, and for a DISCLAIMER OF ALL WARRANTIES.
  */
 
-#include "tclInt.h"
+#include "tclWinInt.h"
 
 #define SECSPERDAY	(60L * 60L * 24L)
 #define SECSPERYEAR	(SECSPERDAY * 365L)
@@ -570,13 +570,12 @@ NativeGetMicroseconds(void)
 	     */
 
 	    if (timeInfo.perfCounterAvailable) {
-		DWORD id;
 
 		InitializeCriticalSection(&timeInfo.cs);
 		timeInfo.readyEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 		timeInfo.exitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-		timeInfo.calibrationThread = CreateThread(NULL, 256,
-			CalibrationThread, (LPVOID) NULL, 0, &id);
+		timeInfo.calibrationThread = TclWinThreadCreate(NULL,
+			CalibrationThread, (LPVOID) NULL, 256);
 		SetThreadPriority(timeInfo.calibrationThread,
 			THREAD_PRIORITY_HIGHEST);
 
@@ -1123,6 +1122,7 @@ CalibrationThread(
     }
 
     /* lint */
+    TclWinThreadExit(0);
     return (DWORD) 0;
 }
 
