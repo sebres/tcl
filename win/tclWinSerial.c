@@ -94,7 +94,6 @@ typedef struct SerialInfo {
     OVERLAPPED osRead;		/* OVERLAPPED structure for read operations. */
     OVERLAPPED osWrite;		/* OVERLAPPED structure for write operations */
     TclPipeThreadInfo *writeTI;	/* Thread info structure of writer worker. */
-    HANDLE writeThread;		/* Handle to writer thread. */
     CRITICAL_SECTION csWrite;	/* Writer thread synchronisation. */
     HANDLE evWritable;		/* Manual-reset event to signal when the
 				 * writer thread has finished waiting for the
@@ -603,14 +602,12 @@ SerialCloseProc(
     }
     serialPtr->validMask &= ~TCL_READABLE;
 
-    if (serialPtr->writeThread) {
+    if (serialPtr->writeTI) {
 
-    	TclPipeThreadStop(&serialPtr->writeTI, serialPtr->writeThread);
+    	TclPipeThreadStop(&serialPtr->writeTI);
 
 	CloseHandle(serialPtr->osWrite.hEvent);
 	CloseHandle(serialPtr->evWritable);
-	CloseHandle(serialPtr->writeThread);
-	serialPtr->writeThread = NULL;
 
 	PurgeComm(serialPtr->handle, PURGE_TXABORT | PURGE_TXCLEAR);
     }
@@ -1469,7 +1466,7 @@ TclWinOpenSerialChannel(
 
 	infoPtr->osWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	infoPtr->evWritable = CreateEvent(NULL, TRUE, TRUE, NULL);
-	infoPtr->writeThread = TclPipeThreadCreate(&infoPtr->writeTI,
+	TclPipeThreadCreate(&infoPtr->writeTI,
 		SerialWriterThread, infoPtr, infoPtr->evWritable);
     }
 

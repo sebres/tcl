@@ -53,7 +53,6 @@ TCL_DECLARE_MUTEX(consoleMutex)
  */
 
 typedef struct ConsoleThreadInfo {
-    HANDLE thread;		/* Handle to reader or writer thread. */
     HANDLE readyEvent;		/* Manual-reset event to signal _to_ the main
 				 * thread when the worker thread has finished
 				 * waiting for its normal work to happen. */
@@ -518,11 +517,9 @@ ConsoleCloseProc(
      * trying to read from the console.
      */
 
-    if (consolePtr->reader.thread) {
-	TclPipeThreadStop(&consolePtr->reader.TI, consolePtr->reader.thread);
-	CloseHandle(consolePtr->reader.thread);
+    if (consolePtr->reader.TI) {
+	TclPipeThreadStop(&consolePtr->reader.TI);
 	CloseHandle(consolePtr->reader.readyEvent);
-	consolePtr->reader.thread = NULL;
     }
     consolePtr->validMask &= ~TCL_READABLE;
 
@@ -532,7 +529,7 @@ ConsoleCloseProc(
      * should be no pending write operations.
      */
 
-    if (consolePtr->writer.thread) {
+    if (consolePtr->writer.TI) {
 	if (consolePtr->toWrite) {
 	    /*
 	     * We only need to wait if there is something to write. This may
@@ -542,10 +539,8 @@ ConsoleCloseProc(
 	    WaitForSingleObject(consolePtr->writer.readyEvent, 5000);
 	}
 
-	TclPipeThreadStop(&consolePtr->writer.TI, consolePtr->writer.thread);
-	CloseHandle(consolePtr->writer.thread);
+	TclPipeThreadStop(&consolePtr->writer.TI);
 	CloseHandle(consolePtr->writer.readyEvent);
-	consolePtr->writer.thread = NULL;
     }
     consolePtr->validMask &= ~TCL_WRITABLE;
 
@@ -1310,17 +1305,17 @@ TclWinOpenConsoleChannel(
 	SetConsoleMode(infoPtr->handle, modes);
 
 	infoPtr->reader.readyEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
-	infoPtr->reader.thread = TclPipeThreadCreate(&infoPtr->reader.TI,
+	TclPipeThreadCreate(&infoPtr->reader.TI,
 		ConsoleReaderThread, infoPtr, infoPtr->reader.readyEvent);
-	SetThreadPriority(infoPtr->reader.thread, THREAD_PRIORITY_HIGHEST);
+	SetThreadPriority(infoPtr->reader.TI->hThread, THREAD_PRIORITY_HIGHEST);
     }
 
     if (permissions & TCL_WRITABLE) {
 
 	infoPtr->writer.readyEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
-	infoPtr->writer.thread = TclPipeThreadCreate(&infoPtr->writer.TI,
+	TclPipeThreadCreate(&infoPtr->writer.TI,
 		ConsoleWriterThread, infoPtr, infoPtr->writer.readyEvent);
-	SetThreadPriority(infoPtr->writer.thread, THREAD_PRIORITY_HIGHEST);
+	SetThreadPriority(infoPtr->writer.TI->hThread, THREAD_PRIORITY_HIGHEST);
     }
 
     /*

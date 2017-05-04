@@ -105,8 +105,6 @@ typedef struct PipeInfo {
 				 * threads. */
     TclPipeThreadInfo *writeTI;	/* Thread info of writer and reader, this */
     TclPipeThreadInfo *readTI;	/* structure owned by corresponding thread. */
-    HANDLE writeThread;		/* Handle to writer thread. */
-    HANDLE readThread;		/* Handle to reader thread. */
     HANDLE writable;		/* Manual-reset event to signal when the
 				 * writer thread has finished waiting for the
 				 * current buffer to be written. */
@@ -1797,13 +1795,12 @@ TclpCreateCommandChannel(
 	 */
 
 	infoPtr->readable = CreateEvent(NULL, TRUE, TRUE, NULL);
-	infoPtr->readThread = TclPipeThreadCreate(&infoPtr->readTI,
+	TclPipeThreadCreate(&infoPtr->readTI,
 		PipeReaderThread, infoPtr, infoPtr->readable);
-	SetThreadPriority(infoPtr->readThread, THREAD_PRIORITY_HIGHEST);
+	SetThreadPriority(infoPtr->readTI->hThread, THREAD_PRIORITY_HIGHEST);
 	infoPtr->validMask |= TCL_READABLE;
     } else {
     	infoPtr->readTI = NULL;
-	infoPtr->readThread = 0;
     }
     if (writeFile != NULL) {
 	/*
@@ -1811,13 +1808,12 @@ TclpCreateCommandChannel(
 	 */
 
 	infoPtr->writable = CreateEvent(NULL, TRUE, TRUE, NULL);
-	infoPtr->writeThread = TclPipeThreadCreate(&infoPtr->writeTI,
+	TclPipeThreadCreate(&infoPtr->writeTI,
 		PipeWriterThread, infoPtr, infoPtr->writable);
-	SetThreadPriority(infoPtr->writeThread, THREAD_PRIORITY_HIGHEST);
+	SetThreadPriority(infoPtr->writeTI->hThread, THREAD_PRIORITY_HIGHEST);
 	infoPtr->validMask |= TCL_WRITABLE;
     } else {
     	infoPtr->writeTI = NULL;
-    	infoPtr->writeThread = 0;
     }
 
     /*
@@ -1970,12 +1966,10 @@ PipeClose2Proc(
 	 * trying to read from the pipe.
 	 */
 
-	if (pipePtr->readThread) {
+	if (pipePtr->readTI) {
 
-	    TclPipeThreadStop(&pipePtr->readTI, pipePtr->readThread);
-	    CloseHandle(pipePtr->readThread);
+	    TclPipeThreadStop(&pipePtr->readTI);
 	    CloseHandle(pipePtr->readable);
-	    pipePtr->readThread = NULL;
 	}
 	if (TclpCloseFile(pipePtr->readFile) != 0) {
 	    errorCode = errno;
@@ -1984,7 +1978,7 @@ PipeClose2Proc(
 	pipePtr->readFile = NULL;
     }
     if ((!flags || flags & TCL_CLOSE_WRITE) && (pipePtr->writeFile != NULL)) {
-	if (pipePtr->writeThread) {
+	if (pipePtr->writeTI) {
 	    /*
 	     * Wait for the writer thread to finish the current buffer, then
 	     * terminate the thread and close the handles. If the channel is
@@ -2006,11 +2000,11 @@ PipeClose2Proc(
 
 	    }
 
-	    TclPipeThreadStop(&pipePtr->writeTI, pipePtr->writeThread);
-
+	    TclPipeThreadStop(&pipePtr->writeTI);
+	}
+	if (pipePtr->writable) {
 	    CloseHandle(pipePtr->writable);
-	    CloseHandle(pipePtr->writeThread);
-	    pipePtr->writeThread = NULL;
+	    pipePtr->writable = NULL;
 	}
 	if (TclpCloseFile(pipePtr->writeFile) != 0) {
 	    if (errorCode == 0) {
@@ -3157,6 +3151,9 @@ TclPipeThreadCreateTI(
     pipeTI->state = PTI_STATE_IDLE;
     pipeTI->clientData = clientData;
     pipeTI->evWakeUp = wakeEvent;
+    pipeTI->hThread = NULL;
+    pipeTI->nextPtr = NULL;
+    pipeTI->prevPtr = NULL;
     return (*pipeTIPtr = pipeTI);
 }
 
@@ -3180,11 +3177,179 @@ TclPipeThreadCreate(
     ClientData clientData,	/* The one argument to Main(). */
     HANDLE wakeEvent)		/* Optional thread wake-up event */
 {
-    return TclWinThreadCreate(NULL, proc,
-		TclPipeThreadCreateTI(pipeTIPtr, clientData, wakeEvent), 256);
+    return ((*pipeTIPtr)->hThread = TclWinThreadCreate(NULL, proc,
+		TclPipeThreadCreateTI(pipeTIPtr, clientData, wakeEvent), 256));
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclPipeThreadRelease --
+ *
+ *	Releases a pipe-worker thread and its thread info structure.
+ *
+ * Results:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void 
+TclPipeThreadRelease(
+    TclPipeThreadInfo *pipeTI)
+{
+    if (pipeTI->evWakeUp) {
+	SetEvent(pipeTI->evWakeUp);
+    }
+    CloseHandle(pipeTI->evControl);
+    CloseHandle(pipeTI->hThread);
+  #ifndef _PTI_USE_CKALLOC
+    free(pipeTI);
+  #else
+    ckfree((char*)pipeTI);
+  #endif
 }
 
 
+/*
+ * Pool of worker pending for proper shutdown state.
+ * This pool should be empty before exit application, to prevent runtime errors
+ * like "R6016 - Not enough space for thread data".
+ */
+TCL_DECLARE_MUTEX(pipePoolMutex)
+
+static TclPipeThreadInfo *pipeThShutdownPool = NULL;
+static int pipeThShutdownExH = 0;	/* flag shows shutdown exit handler created */
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclPipeThreadFreeShutdownPool --
+ *
+ *	Properly shutdown worker or pool of workers, wait for end of thread(s).
+ *
+ * Results:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+TclPipeThreadFreeShutdownPool(
+    TclPipeThreadInfo **poolPtr)
+{
+    DWORD exitCode;
+    TclPipeThreadInfo *pipeTI, *nextTI;
+
+    Tcl_MutexLock(&pipePoolMutex);
+
+    /* remove sane exited workers */
+    for (pipeTI = (*poolPtr); pipeTI; pipeTI = nextTI) {
+	nextTI = pipeTI->nextPtr;
+	if ( (!GetExitCodeThread(pipeTI->hThread, &exitCode) || exitCode == STILL_ACTIVE)
+	  && WaitForSingleObject(pipeTI->hThread, 0) != WAIT_OBJECT_0
+	) {
+	   /* later */
+	   continue;
+	}
+	TclSpliceOut(pipeTI, (*poolPtr));
+	pipeTI->nextPtr = NULL;
+	TclPipeThreadRelease(pipeTI);
+    }
+
+    /* wait for still alive workers */
+    while ((pipeTI = (*poolPtr))) {
+    	HANDLE hThread = pipeTI->hThread;
+	TclSpliceOut(pipeTI, (*poolPtr));
+	pipeTI->nextPtr = NULL;
+
+	Tcl_MutexUnlock(&pipePoolMutex);
+	/*
+	 * Cancel all sync-IO of this thread (may be blocked there).
+	 */
+	if (tclWinProcs->cancelSynchronousIo) {
+	    tclWinProcs->cancelSynchronousIo(hThread);
+	}
+	/*
+	 * Terminating of threads (especially in exit) is very bad idea, 
+	 * so just wait for its end
+	 */
+	WaitForSingleObject(hThread, TclInExit() ? 1000 : INFINITE);
+	
+	TclPipeThreadRelease(pipeTI);
+
+	Tcl_MutexLock(&pipePoolMutex);
+    }
+    
+    if (poolPtr == &pipeThShutdownPool) {
+	pipeThShutdownExH = 0;
+    }
+    Tcl_MutexUnlock(&pipePoolMutex);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclPipeThreadShutdownHandler --
+ *
+ *	Exit handler to properly shutdown all workers.
+ *	Avoids runtime errors "R6016 - Not enough space for thread data".
+ *
+ * Results:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+TclPipeThreadShutdownHandler(
+    ClientData unused)
+{
+    TclPipeThreadFreeShutdownPool(&pipeThShutdownPool);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclPipeThreadAddToPool --
+ *
+ *	Adds a thread info structure to given pool.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Creates exit handler to shutdown known pools of workers.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+TclPipeThreadAddToPool(
+    TclPipeThreadInfo **poolPtr,
+    TclPipeThreadInfo *pipeTI)
+{
+    int inExit = TclInExit();
+
+    /* in exit (but impossible to create exit handler) - do shutdown right now */
+    if (inExit && !pipeThShutdownExH) {
+	TclPipeThreadFreeShutdownPool(&pipeTI);
+	return;
+    }
+
+    Tcl_MutexLock(&pipePoolMutex);
+    /* add to shutdown pool */
+    if (!pipeTI->nextPtr) {
+	TclSpliceIn(pipeTI, (*poolPtr));
+	/* create exit handler once */
+	if (!pipeThShutdownExH && !inExit) {
+	    pipeThShutdownExH = 1;
+	    Tcl_CreateExitHandler(TclPipeThreadShutdownHandler, NULL);
+	}
+    }
+    Tcl_MutexUnlock(&pipePoolMutex);
+}
+
 /*
  *----------------------------------------------------------------------
  *
@@ -3341,18 +3506,20 @@ TclPipeThreadStopSignal(
 
 void
 TclPipeThreadStop(
-    TclPipeThreadInfo **pipeTIPtr,
-    HANDLE hThread)
+    TclPipeThreadInfo **pipeTIPtr)
 {
     TclPipeThreadInfo *pipeTI = *pipeTIPtr;
-    HANDLE evControl;
+    HANDLE hThread, evControl;
+    DWORD exitCode;
     int state;
 
     if (!pipeTI) {
 	return;
     }
     evControl = pipeTI->evControl;
+    /* no waiter for wake-up anymore*/
     pipeTI->evWakeUp = NULL;
+    hThread = pipeTI->hThread;
     /*
      * Try to sane stop the pipe worker, corresponding its current state
      */
@@ -3368,18 +3535,18 @@ TclPipeThreadStop(
 
 	    /* we don't need to wait for it at all, thread frees himself (owns the TI structure) */
 	    pipeTI = NULL;
-	break;
+	goto done;
 
 	case PTI_STATE_STOP:
 	    /* already stopped, thread frees himself (owns the TI structure) */
 	    pipeTI = NULL;
-	break;
+	goto done;
+
 	case PTI_STATE_DOWN:
 	    /* Thread already down (?), do nothing */
 
 	    /* we don't need to wait for it, but we should free pipeTI */
-	    hThread = NULL;
-	break;
+	goto done;
 
 	/* case PTI_STATE_WORK: */
 	default:
@@ -3391,22 +3558,18 @@ TclPipeThreadStop(
 		    PTI_STATE_END, PTI_STATE_WORK)) == PTI_STATE_DOWN
 	    ) {
 		/* we don't need to wait for it, but we should free pipeTI */
-		hThread = NULL;
+		goto done;
 	    };
 	break;
     }
 
-    if (pipeTI && hThread) {
-	DWORD exitCode;
-    
+    if (hThread) {
 	/*
 	 * The thread may already have closed on its own. Check its exit
 	 * code.
 	 */
 
-	GetExitCodeThread(hThread, &exitCode);
-
-	if (exitCode == STILL_ACTIVE) {
+	if (!GetExitCodeThread(hThread, &exitCode) || exitCode == STILL_ACTIVE) {
 
 	    int inExit = (TclInExit() || TclInThreadExit());
 	    /*
@@ -3474,20 +3637,27 @@ TclPipeThreadStop(
 		    };
 		}
 	    }
+	} else {
+	    hThread = NULL;
 	}
     }
 
-    *pipeTIPtr = NULL;
-    if (pipeTI) {
-	if (pipeTI->evWakeUp) {
-	    SetEvent(pipeTI->evWakeUp);
+  done:
+
+    /* if worker still alive, then add thread to pending shutdown pool, to prevent "R6016" error */
+    if (hThread) {
+	if ( (!GetExitCodeThread(hThread, &exitCode) || exitCode == STILL_ACTIVE) 
+	  && WaitForSingleObject(hThread, 0) != WAIT_OBJECT_0
+	) {
+	    (*pipeTIPtr)->clientData = NULL;
+	    TclPipeThreadAddToPool(&pipeThShutdownPool, *pipeTIPtr);
+	    *pipeTIPtr = pipeTI = NULL; /* don't release it */
 	}
-	CloseHandle(pipeTI->evControl);
-    #ifndef _PTI_USE_CKALLOC
-	free(pipeTI);
-    #else
-	ckfree((char*)pipeTI);
-    #endif
+    }
+
+    if (pipeTI) {
+	*pipeTIPtr = NULL;
+	TclPipeThreadRelease(pipeTI);
     }
 }
 
@@ -3514,33 +3684,28 @@ void
 TclPipeThreadExit(
     TclPipeThreadInfo **pipeTIPtr)
 {
-    LONG state;
     TclPipeThreadInfo *pipeTI = *pipeTIPtr;
     /*
      * If state of thread was set to stop (exactly), we can sane free its info
      * structure, otherwise it is shared with main thread, so main thread will
      * own it.
      */
-    if (!pipeTI) {
-	goto end;
-    }
-    *pipeTIPtr = NULL;
-    if ((state = InterlockedExchange(&pipeTI->state,
-	    PTI_STATE_DOWN)) == PTI_STATE_STOP) {
-	CloseHandle(pipeTI->evControl);
-	if (pipeTI->evWakeUp) {
-	    SetEvent(pipeTI->evWakeUp);
+    if (pipeTI) {
+	*pipeTIPtr = NULL;
+	/*
+	 * don't release it - belong to shutdown pool now
+	 *
+	if (InterlockedExchange(&pipeTI->state, 
+		PTI_STATE_DOWN) == PTI_STATE_STOP) {
+	    TclPipeThreadRelease(pipeTI);
 	}
-    #ifndef _PTI_USE_CKALLOC
-	free(pipeTI);
-    #else
-	ckfree((char*)pipeTI);
-	/* be sure all subsystems used are finalized */
-	Tcl_FinalizeThread();
-    #endif
+	*/
     }
 
-  end:
+  #ifdef _PTI_USE_CKALLOC
+    /* be sure all subsystems used are finalized */
+    Tcl_FinalizeThread();
+  #endif
     TclWinThreadExit(0);
 }
 
