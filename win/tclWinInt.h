@@ -271,6 +271,7 @@ typedef struct TclPipeThreadInfo {
 				 * to do read/write operation. Additionally
 				 * used as signal to stop (state set to -1) */
     volatile LONG state;	/* Indicates current state of the thread */
+    LPTHREAD_START_ROUTINE proc;/* Main() function of the thread. */
     ClientData clientData;	/* Referenced data of the main thread */
     HANDLE evWakeUp;		/* Optional wake-up event worker set by shutdown */
     HANDLE hThread;		/* Handle of pipe-worker thread */
@@ -293,15 +294,14 @@ typedef struct TclPipeThreadInfo {
  */
 
 #define PTI_STATE_IDLE	0	/* idle or not yet initialzed */
-#define PTI_STATE_WORK	1	/* in work */
-#define PTI_STATE_STOP	2	/* thread should stop work (owns TI structure) */
-#define PTI_STATE_END	4	/* thread should stop work (worker is busy) */
-#define PTI_STATE_DOWN  8	/* worker is down */
+#define PTI_STATE_WORK	(1<<0)	/* in work */
+#define PTI_STATE_STOP	(1<<1)	/* thread should stop work (owns TI structure) */
+#define PTI_STATE_END	(1<<2)	/* thread should stop work (worker is busy) */
+#define PTI_STATE_AWAIT	(1<<3)	/* pending state, worker await a job */
+#define PTI_STATE_DOWN  (1<<4)	/* worker is down */
+#define PTI_STATE_EXITMASK (PTI_STATE_STOP|PTI_STATE_END|PTI_STATE_DOWN|PTI_STATE_AWAIT)
 
 
-MODULE_SCOPE 
-TclPipeThreadInfo *	TclPipeThreadCreateTI(TclPipeThreadInfo **pipeTIPtr, 
-			    ClientData clientData, HANDLE wakeEvent);
 MODULE_SCOPE HANDLE	TclPipeThreadCreate(TclPipeThreadInfo **pipeTIPtr,
 			    LPTHREAD_START_ROUTINE proc, ClientData clientData,
 			    HANDLE wakeEvent);
@@ -328,6 +328,5 @@ TclPipeThreadIsAlive(
 
 MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr, HANDLE wakeEvent);
 MODULE_SCOPE void	TclPipeThreadStop(TclPipeThreadInfo **pipeTIPtr);
-MODULE_SCOPE void	TclPipeThreadExit(TclPipeThreadInfo **pipeTIPtr);
 
 #endif	/* _TCLWININT */

@@ -1949,7 +1949,8 @@ typedef struct Interp {
  * b = list head (points to the first element).
  * e = list tail (points to the last element).
  *
- * TclSpliceIn adds to the head of the list.
+ * TclSpliceIn, TclSpliceInEx add to the head of the list.
+ * TclSpliceTail, TclSpliceTailEx add to the tail of the list.
  * TclSpliceTail adds to the tail of the list.
  */
 

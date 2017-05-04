@@ -1136,9 +1136,6 @@ ConsoleReaderThread(
 	Tcl_MutexUnlock(&consoleMutex);
     }
 
-    /* Worker exit, so inform the main thread or free TI-structure (if owned) */
-    TclPipeThreadExit(&pipeTI);
-
     return 0;
 }
 
@@ -1229,9 +1226,6 @@ ConsoleWriterThread(
 	}
 	Tcl_MutexUnlock(&consoleMutex);
     }
-
-    /* Worker exit, so inform the main thread or free TI-structure (if owned) */
-    TclPipeThreadExit(&pipeTI);
 
     return 0;
 }
