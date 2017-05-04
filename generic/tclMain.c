@@ -68,6 +68,7 @@ typedef struct InteractiveState {
 
 static void		Prompt(Tcl_Interp *interp, PromptType *promptPtr);
 static void		StdinProc(ClientData clientData, int mask);
+static void		FreeMainInterp(ClientData clientData);
 
 /*
  *----------------------------------------------------------------------
@@ -352,6 +353,12 @@ Tcl_Main(
     Tcl_InitMemory(interp);
 
     /*
+     * Arrange for final deletion of the main interp
+     */
+    Tcl_Preserve((ClientData) interp);
+    Tcl_CreateExitHandler(FreeMainInterp, interp);
+
+    /*
      * If the application has not already set a startup script, parse the
      * first few command line arguments to determine the script path and
      * encoding.
@@ -416,7 +423,6 @@ Tcl_Main(
      * Invoke application-specific initialization.
      */
 
-    Tcl_Preserve((ClientData) interp);
     if ((*appInitProc)(interp) != TCL_OK) {
 	errChannel = Tcl_GetStdChannel(TCL_STDERR);
 	if (errChannel) {
@@ -661,33 +667,21 @@ Tcl_Main(
      * exit. The Tcl_EvalObjEx call should never return.
      */
 
-    if (!Tcl_InterpDeleted(interp)) {
-	if (!Tcl_LimitExceeded(interp)) {
-	    Tcl_Obj *cmd = Tcl_ObjPrintf("exit %d", exitCode);
-	    Tcl_IncrRefCount(cmd);
-	    Tcl_EvalObjEx(interp, cmd, TCL_EVAL_GLOBAL);
-	    Tcl_DecrRefCount(cmd);
-	}
+    if (!Tcl_InterpDeleted(interp) && !Tcl_LimitExceeded(interp)) {
+	Tcl_Obj *cmd = Tcl_ObjPrintf("exit %d", exitCode);
 
-	/*
-	 * If Tcl_EvalObjEx returns, trying to eval [exit], something unusual
-	 * is happening. Maybe interp has been deleted; maybe [exit] was
-	 * redefined, maybe we've blown up because of an exceeded limit. We
-	 * still want to cleanup and exit.
-	 */
-
-	if (!Tcl_InterpDeleted(interp)) {
-	    Tcl_DeleteInterp(interp);
-	}
+	Tcl_IncrRefCount(cmd);
+	Tcl_EvalObjEx(interp, cmd, TCL_EVAL_GLOBAL);
+	Tcl_DecrRefCount(cmd);
     }
-    Tcl_SetStartupScript(NULL, NULL);
 
     /*
-     * If we get here, the master interp has been deleted. Allow its
-     * destruction with the last matching Tcl_Release.
+     * If Tcl_EvalObjEx returns, trying to eval [exit], something unusual is
+     * happening. Maybe interp has been deleted; maybe [exit] was redefined,
+     * maybe we've blown up because of an exceeded limit. We still want to
+     * cleanup and exit.
      */
 
-    Tcl_Release((ClientData) interp);
     Tcl_Exit(exitCode);
 }
 
@@ -895,6 +889,32 @@ Prompt(
 	Tcl_Flush(outChannel);
     }
     *promptPtr = PROMPT_NONE;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * FreeMainInterp --
+ *
+ *	Exit handler used to cleanup the main interpreter and ancillary
+ *	startup script storage at exit.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+FreeMainInterp(
+    ClientData clientData)
+{
+    Tcl_Interp *interp = clientData;
+
+    /*if (TclInExit()) return;*/
+
+    if (!Tcl_InterpDeleted(interp)) {
+	Tcl_DeleteInterp(interp);
+    }
+    Tcl_SetStartupScript(NULL, NULL);
+    Tcl_Release(interp);
 }
 
 /*

@@ -1256,10 +1256,11 @@ DeleteInterpProc(
     ResolverScheme *resPtr, *nextResPtr;
 
     /*
-     * Punt if there is an error in the Tcl_Release/Tcl_Preserve matchup.
+     * Punt if there is an error in the Tcl_Release/Tcl_Preserve matchup,
+     * unless we are exiting.
      */
 
-    if (iPtr->numLevels > 0) {
+    if ((iPtr->numLevels > 0) && !TclInExit()) {
 	Tcl_Panic("DeleteInterpProc called with active evals");
     }
 
@@ -1352,7 +1353,7 @@ DeleteInterpProc(
      * namespace. The order is important [Bug 1658572].
      */
 
-    if (iPtr->framePtr != iPtr->rootFramePtr) {
+    if ((iPtr->framePtr != iPtr->rootFramePtr) && !TclInExit()) {
 	Tcl_Panic("DeleteInterpProc: popping rootCallFrame with other frames on top");
     }
     Tcl_PopCallFrame(interp);
@@ -1480,7 +1481,7 @@ DeleteInterpProc(
 	 * which won't.
 	 */
 
-	if (iPtr->lineLAPtr->numEntries) {
+	if (iPtr->lineLAPtr->numEntries && !TclInExit()) {
 	    /*
 	     * When the interp goes away we have nothing on the stack, so
 	     * there are no arguments, so this table has to be empty.

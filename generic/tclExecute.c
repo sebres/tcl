@@ -50,6 +50,8 @@
 static int execInitialized = 0;
 TCL_DECLARE_MUTEX(execMutex)
 
+static int cachedInExit = 0;
+
 #ifdef TCL_COMPILE_DEBUG
 /*
  * Variable that controls whether execution tracing is enabled and, if so,
@@ -755,7 +757,7 @@ static void
 DeleteExecStack(
     ExecStack *esPtr)
 {
-    if (esPtr->markerPtr) {
+    if (esPtr->markerPtr && !cachedInExit) {
 	Tcl_Panic("freeing an execStack which is still in use");
     }
 
@@ -773,6 +775,8 @@ TclDeleteExecEnv(
     ExecEnv *eePtr)		/* Execution environment to free. */
 {
     ExecStack *esPtr = eePtr->execStackPtr, *tmpPtr;
+
+    cachedInExit = TclInExit();
 
     /*
      * Delete all stacks in this exec env.
