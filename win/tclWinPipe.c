@@ -3123,6 +3123,20 @@ PipeThreadActionProc(
 }
 
 /*
+ * Pool of worker pending for proper shutdown state.
+ * This pool should be empty before exit application, to prevent runtime errors
+ * like "R6016 - Not enough space for thread data".
+ */
+TCL_DECLARE_MUTEX(pipePoolMutex)
+
+static TclPipeThreadInfo *pipeThShutdownPool = NULL;
+static int pipeThShutdownExH = 0;	/* flag shows shutdown exit handler created */
+
+static void	TclPipeThreadFreeShutdownPool(TclPipeThreadInfo **poolPtr,
+			int count, int wait);
+
+
+/*
  *----------------------------------------------------------------------
  *
  * TclPipeThreadCreateTI --
@@ -3177,6 +3191,11 @@ TclPipeThreadCreate(
     ClientData clientData,	/* The one argument to Main(). */
     HANDLE wakeEvent)		/* Optional thread wake-up event */
 {
+    /* clean-up: avoid endless grow of shutdown pool (just remove one exited thread) */
+    if (pipeThShutdownPool) {
+	TclPipeThreadFreeShutdownPool(&pipeThShutdownPool, 1, 0 /*don't wait*/);
+    }
+    /* create thread and TI structure */
     return ((*pipeTIPtr)->hThread = TclWinThreadCreate(NULL, proc,
 		TclPipeThreadCreateTI(pipeTIPtr, clientData, wakeEvent), 256));
 }
@@ -3210,17 +3229,6 @@ TclPipeThreadRelease(
   #endif
 }
 
-
-/*
- * Pool of worker pending for proper shutdown state.
- * This pool should be empty before exit application, to prevent runtime errors
- * like "R6016 - Not enough space for thread data".
- */
-TCL_DECLARE_MUTEX(pipePoolMutex)
-
-static TclPipeThreadInfo *pipeThShutdownPool = NULL;
-static int pipeThShutdownExH = 0;	/* flag shows shutdown exit handler created */
-
 /*
  *----------------------------------------------------------------------
  *
@@ -3236,7 +3244,9 @@ static int pipeThShutdownExH = 0;	/* flag shows shutdown exit handler created */
 
 static void
 TclPipeThreadFreeShutdownPool(
-    TclPipeThreadInfo **poolPtr)
+    TclPipeThreadInfo **poolPtr,
+    int count,
+    int wait)
 {
     DWORD exitCode;
     TclPipeThreadInfo *pipeTI, *nextTI;
@@ -3244,7 +3254,7 @@ TclPipeThreadFreeShutdownPool(
     Tcl_MutexLock(&pipePoolMutex);
 
     /* remove sane exited workers */
-    for (pipeTI = (*poolPtr); pipeTI; pipeTI = nextTI) {
+    for (pipeTI = (*poolPtr); count && pipeTI; pipeTI = nextTI) {
 	nextTI = pipeTI->nextPtr;
 	if ( (!GetExitCodeThread(pipeTI->hThread, &exitCode) || exitCode == STILL_ACTIVE)
 	  && WaitForSingleObject(pipeTI->hThread, 0) != WAIT_OBJECT_0
@@ -3255,10 +3265,12 @@ TclPipeThreadFreeShutdownPool(
 	TclSpliceOut(pipeTI, (*poolPtr));
 	pipeTI->nextPtr = NULL;
 	TclPipeThreadRelease(pipeTI);
+	count--;
     }
 
     /* wait for still alive workers */
-    while ((pipeTI = (*poolPtr))) {
+    if (wait)
+    while (count && (pipeTI = (*poolPtr))) {
     	HANDLE hThread = pipeTI->hThread;
 	TclSpliceOut(pipeTI, (*poolPtr));
 	pipeTI->nextPtr = NULL;
@@ -3277,13 +3289,11 @@ TclPipeThreadFreeShutdownPool(
 	WaitForSingleObject(hThread, TclInExit() ? 1000 : INFINITE);
 	
 	TclPipeThreadRelease(pipeTI);
+	count--;
 
 	Tcl_MutexLock(&pipePoolMutex);
     }
     
-    if (poolPtr == &pipeThShutdownPool) {
-	pipeThShutdownExH = 0;
-    }
     Tcl_MutexUnlock(&pipePoolMutex);
 }
 
@@ -3305,7 +3315,8 @@ static void
 TclPipeThreadShutdownHandler(
     ClientData unused)
 {
-    TclPipeThreadFreeShutdownPool(&pipeThShutdownPool);
+    TclPipeThreadFreeShutdownPool(&pipeThShutdownPool, INT_MAX, 1);
+    pipeThShutdownExH = 0;
 }
 
 /*
@@ -3333,7 +3344,7 @@ TclPipeThreadAddToPool(
 
     /* in exit (but impossible to create exit handler) - do shutdown right now */
     if (inExit && !pipeThShutdownExH) {
-	TclPipeThreadFreeShutdownPool(&pipeTI);
+	TclPipeThreadFreeShutdownPool(&pipeTI, 1, 1);
 	return;
     }
 
