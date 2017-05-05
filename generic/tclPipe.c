@@ -390,6 +390,7 @@ TclCleanupChildren(
      */
 
     if ((abnormalExit != 0) && (anyErrorInfo == 0) && (interp != NULL)) {
+    	printf("********* child process exited abnormally: %d -- %d\n", abnormalExit, anyErrorInfo); 
 	Tcl_AppendResult(interp, "child process exited abnormally", NULL);
     }
     return result;

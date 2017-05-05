@@ -273,12 +273,20 @@ typedef struct TclPipeThreadInfo {
     volatile LONG state;	/* Indicates current state of the thread */
     LPTHREAD_START_ROUTINE proc;/* Main() function of the thread. */
     ClientData clientData;	/* Referenced data of the main thread */
-    HANDLE evWakeUp;		/* Optional wake-up event worker set by shutdown */
+    HANDLE evWakeUp;		/* Optional wake-up event (owned by main thread) */
     HANDLE hThread;		/* Handle of pipe-worker thread */
-    struct TclPipeThreadInfo *nextPtr; /* next/prev TI if belongs to pending pool*/
+    struct TclPipeThreadInfo *nextPtr; /* next/prev TI in pending pool*/
     struct TclPipeThreadInfo *prevPtr;
+    volatile LONG inPool;	/* Indicates membership of thread in the pending pool */
 } TclPipeThreadInfo;
 
+/*
+ * Pool states of thread (pipeTI->inPool).
+ * 0 - indicates this thread is not in pool,
+ * 1 - belongs to the pool,
+ * -1 (PTI_THPS_TEARDOWN) - means thread teardown, special case to prevent attaching again into the pool
+ */
+#define PTI_THPS_TEARDOWN (-1)  /* Indicates teardown, special case to prevent attaching again into the pool */
 
 /* If pipe-workers will use some tcl subsystem, we can use ckalloc without
  * more overhead for finalize thread (should be executed anyway)
@@ -289,17 +297,21 @@ typedef struct TclPipeThreadInfo {
 /*
  * State of the pipe-worker.
  * 
- * State PTI_STATE_STOP possible from idle state only, worker owns TI structure.
- * Otherwise PTI_STATE_END used (main thread hold ownership of the TI).
+ * States PTI_STATE_STOP or PTI_STATE_END are signals worker to end job.
+ * State PTI_STATE_STOP possible from idle state only, otherwise PTI_STATE_END used.
+ * State PTI_STATE_AWAIT shows the worker is pending (can be reused).
+ * State PTI_STATE_TEAR used to signal shutdown.
  */
 
 #define PTI_STATE_IDLE	0	/* idle or not yet initialzed */
 #define PTI_STATE_WORK	(1<<0)	/* in work */
-#define PTI_STATE_STOP	(1<<1)	/* thread should stop work (owns TI structure) */
+#define PTI_STATE_STOP	(1<<1)	/* thread should stop work (worker was idle) */
 #define PTI_STATE_END	(1<<2)	/* thread should stop work (worker is busy) */
 #define PTI_STATE_AWAIT	(1<<3)	/* pending state, worker await a job */
-#define PTI_STATE_DOWN  (1<<4)	/* worker is down */
-#define PTI_STATE_EXITMASK (PTI_STATE_STOP|PTI_STATE_END|PTI_STATE_DOWN|PTI_STATE_AWAIT)
+#define PTI_STATE_TEAR	(1<<4)	/* thread shutdown signal */
+#define PTI_STATE_DOWN  (1<<5)	/* worker is down */
+#define PTI_STATE_DOWNMASK (PTI_STATE_DOWN|PTI_STATE_AWAIT)
+#define PTI_STATE_EXITMASK (PTI_STATE_STOP|PTI_STATE_END|PTI_STATE_TEAR|PTI_STATE_DOWN|PTI_STATE_AWAIT)
 
 
 MODULE_SCOPE HANDLE	TclPipeThreadCreate(TclPipeThreadInfo **pipeTIPtr,
@@ -323,7 +335,7 @@ TclPipeThreadIsAlive(
     TclPipeThreadInfo **pipeTIPtr)
 {
     TclPipeThreadInfo *pipeTI = *pipeTIPtr;
-    return (pipeTI && pipeTI->state != PTI_STATE_DOWN);
+    return (!(pipeTI && pipeTI->state & PTI_STATE_DOWNMASK));
 };
 
 MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr, HANDLE wakeEvent);
