@@ -271,13 +271,13 @@ typedef struct TclPipeThreadInfo {
 				 * to do read/write operation. Additionally
 				 * used as signal to stop (state set to -1) */
     volatile LONG state;	/* Indicates current state of the thread */
+    volatile
     LPTHREAD_START_ROUTINE proc;/* Main() function of the thread. */
     ClientData clientData;	/* Referenced data of the main thread */
     HANDLE evWakeUp;		/* Optional wake-up event (owned by main thread) */
     HANDLE hThread;		/* Handle of pipe-worker thread */
-    struct TclPipeThreadInfo *nextPtr; /* next/prev TI in pending pool*/
+    struct TclPipeThreadInfo *nextPtr; /* next/prev TI in ring-pool*/
     struct TclPipeThreadInfo *prevPtr;
-    volatile LONG inPool;	/* Indicates membership of thread in the pending pool */
 } TclPipeThreadInfo;
 
 /*
@@ -304,7 +304,7 @@ typedef struct TclPipeThreadInfo {
  */
 
 #define PTI_STATE_IDLE	0	/* idle or not yet initialzed */
-#define PTI_STATE_WORK	(1<<0)	/* in work */
+#define PTI_STATE_WORK	(1<<0)	/* in work (or recives a job) */
 #define PTI_STATE_STOP	(1<<1)	/* thread should stop work (worker was idle) */
 #define PTI_STATE_END	(1<<2)	/* thread should stop work (worker is busy) */
 #define PTI_STATE_AWAIT	(1<<3)	/* pending state, worker await a job */
