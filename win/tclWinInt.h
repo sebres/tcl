@@ -265,28 +265,30 @@ TclWinThreadExit(int status)
  *----------------------------------------------------------------------
  */
 
-typedef struct TclPipeThreadInfo {
+typedef struct TclPipeThreadInfo TclPipeThreadInfo;
+typedef struct TclPipeSharedInfo TclPipeSharedInfo;
+
+typedef struct TclPipeSharedInfo {
     HANDLE evControl;		/* Auto-reset event used by the main thread to
 				 * signal when the pipe thread should attempt 
 				 * to do read/write operation. Additionally
 				 * used as signal to stop (state set to -1) */
     volatile LONG state;	/* Indicates current state of the thread */
-    volatile
     LPTHREAD_START_ROUTINE proc;/* Main() function of the thread. */
     ClientData clientData;	/* Referenced data of the main thread */
     HANDLE evWakeUp;		/* Optional wake-up event (owned by main thread) */
     HANDLE hThread;		/* Handle of pipe-worker thread */
-    struct TclPipeThreadInfo *nextPtr; /* next/prev TI in ring-pool*/
-    struct TclPipeThreadInfo *prevPtr;
-} TclPipeThreadInfo;
+    struct TclPipeSharedInfo *nextPtr; /* next/prev TI in ring-pool*/
+    struct TclPipeSharedInfo *prevPtr;
+    volatile LONG epoch;	/* Epoch of the shared reference, used to fast
+    				 * synchronization of TI between multiple threads */
+    volatile LONG refCount;	/* Reference counter of this shared TI */
+} TclPipeSharedInfo;
 
-/*
- * Pool states of thread (pipeTI->inPool).
- * 0 - indicates this thread is not in pool,
- * 1 - belongs to the pool,
- * -1 (PTI_THPS_TEARDOWN) - means thread teardown, special case to prevent attaching again into the pool
- */
-#define PTI_THPS_TEARDOWN (-1)  /* Indicates teardown, special case to prevent attaching again into the pool */
+typedef struct TclPipeThreadInfo {
+    LONG epoch;			/* Epoch of this shared reference */
+    TclPipeSharedInfo *pipeTI;  /* Shared TI of the pipe-worker */
+} TclPipeThreadInfo;
 
 /* If pipe-workers will use some tcl subsystem, we can use ckalloc without
  * more overhead for finalize thread (should be executed anyway)
