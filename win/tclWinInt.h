@@ -315,23 +315,8 @@ MODULE_SCOPE HANDLE	TclPipeThreadCreate(TclPipeThreadInfo **pipeTIPtr,
 
 MODULE_SCOPE int	TclPipeThreadWaitForSignal(TclPipeThreadInfo **pipeTIPtr);
 
-static inline void
-TclPipeThreadSignal(
-    TclPipeThreadInfo **pipeTIPtr)
-{
-    TclPipeThreadInfo *pipeTI = *pipeTIPtr;
-    if (pipeTI) {
-	SetEvent(pipeTI->evControl);
-    }
-};
-
-static inline int
-TclPipeThreadIsAlive(
-    TclPipeThreadInfo **pipeTIPtr)
-{
-    TclPipeThreadInfo *pipeTI = *pipeTIPtr;
-    return (!(pipeTI && pipeTI->state & PTI_STATE_DOWNMASK));
-};
+MODULE_SCOPE void       TclPipeThreadSignal(TclPipeThreadInfo **pipeTIPtr);
+MODULE_SCOPE int	TclPipeThreadIsAlive(TclPipeThreadInfo **pipeTIPtr);
 
 MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr);
 MODULE_SCOPE void	TclPipeThreadStop(TclPipeThreadInfo **pipeTIPtr);
