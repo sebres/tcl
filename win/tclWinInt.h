@@ -265,29 +265,22 @@ TclWinThreadExit(int status)
  *----------------------------------------------------------------------
  */
 
-typedef struct TclPipeThreadInfo TclPipeThreadInfo;
-typedef struct TclPipeSharedInfo TclPipeSharedInfo;
-
-typedef struct TclPipeSharedInfo {
+typedef struct TclPipeThreadInfo {
+    volatile LONG state;	/* Indicates current state of the thread */
+    volatile LONG refCount;	/* Atomic reference count (+1 pool, +1 worker, +1 main thread (backRef)) */
+    volatile struct
+    TclPipeThreadInfo **backRef;/* Back reference to current main TI-ptr */
+    
     HANDLE evControl;		/* Auto-reset event used by the main thread to
 				 * signal when the pipe thread should attempt 
 				 * to do read/write operation. Additionally
 				 * used as signal to stop (state set to -1) */
-    volatile LONG state;	/* Indicates current state of the thread */
     LPTHREAD_START_ROUTINE proc;/* Main() function of the thread. */
     ClientData clientData;	/* Referenced data of the main thread */
     HANDLE evWakeUp;		/* Optional wake-up event (owned by main thread) */
     HANDLE hThread;		/* Handle of pipe-worker thread */
-    struct TclPipeSharedInfo *nextPtr; /* next/prev TI in ring-pool*/
-    struct TclPipeSharedInfo *prevPtr;
-    volatile LONG epoch;	/* Epoch of the shared reference, used to fast
-    				 * synchronization of TI between multiple threads */
-    volatile LONG refCount;	/* Reference counter of this shared TI */
-} TclPipeSharedInfo;
-
-typedef struct TclPipeThreadInfo {
-    LONG epoch;			/* Epoch of this shared reference */
-    TclPipeSharedInfo *pipeTI;  /* Shared TI of the pipe-worker */
+    struct TclPipeThreadInfo *nextPtr; /* Next/prev TI in ring-pool*/
+    struct TclPipeThreadInfo *prevPtr;
 } TclPipeThreadInfo;
 
 /* If pipe-workers will use some tcl subsystem, we can use ckalloc without
@@ -340,7 +333,7 @@ TclPipeThreadIsAlive(
     return (!(pipeTI && pipeTI->state & PTI_STATE_DOWNMASK));
 };
 
-MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr, HANDLE wakeEvent);
+MODULE_SCOPE int	TclPipeThreadStopSignal(TclPipeThreadInfo **pipeTIPtr);
 MODULE_SCOPE void	TclPipeThreadStop(TclPipeThreadInfo **pipeTIPtr);
 
 #endif	/* _TCLWININT */
