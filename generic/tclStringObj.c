@@ -2884,6 +2884,9 @@ TclStringCatObjv(
 		    /* Prevent shimmer of non-string types. */
 		    allowUniChar = 0;
 		}
+	    } else {
+		/* if so-far-first is empty string, then skip it */
+		if (first+oc == objc) { first++; }
 	    }
 	} else {
 	    /* assert (objPtr->typePtr != NULL) -- stork! */
@@ -2902,9 +2905,30 @@ TclStringCatObjv(
 	}
     } while (--oc && (binary || allowUniChar));
 
-    if (binary) {
+    /*
+     * Trim easily recognizable empty strings from end.
+     * Note: oc might already be 0 before the loop.
+     */
+    ov = objv + objc; oc = objc - first;
+    while (oc) {
+        objPtr = *(--ov); --oc;
+        if (objPtr->bytes && objPtr->length==0) {
+            objc--;
+        }
+    }
+
+    /* Don't update objv, yet: we may still need it */
+    ov = objv + first; oc = objc - first;
+
+    if (oc <= 1) {
+        if (oc == 0) {
+           /* all operands were empty strings; use first one */
+           first = 0; /* last = 0, anyway */
+        } else {
+           last = first;
+        }
+    } else if (binary) {
 	/* Result will be pure byte array. Pre-size it */
-	ov = objv; oc = objc;
 	do {
 	    objPtr = *ov++;
 
@@ -2925,7 +2949,6 @@ TclStringCatObjv(
 	} while (--oc);
     } else if (allowUniChar && requestUniChar) {
 	/* Result will be pure Tcl_UniChar array. Pre-size it. */
-	ov = objv; oc = objc;
 	do {
 	    objPtr = *ov++;
 
@@ -2946,7 +2969,6 @@ TclStringCatObjv(
 	} while (--oc);
     } else {
 	/* Result will be concat of string reps. Pre-size it. */
-	ov = objv; oc = objc;
 	do {
 	    int numBytes;
 
