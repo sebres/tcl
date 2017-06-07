@@ -2914,7 +2914,7 @@ TclStringCatObjv(
         objPtr = *(--ov); --oc;
         if (objPtr->bytes && objPtr->length==0) {
             objc--;
-        }
+        } else break;
     }
 
     /* Don't update objv, yet: we may still need it */
