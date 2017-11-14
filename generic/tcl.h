@@ -564,6 +564,11 @@ typedef void (Tcl_ThreadCreateProc) _ANSI_ARGS_((ClientData clientData));
 #define	TCL_REG_PCRE	    0x20000000	/* Make sure it doesn't conflict with
 					 * existing TCL_REG_* or PCRE_* bits */
 
+/* Following two macros used to supply TCL_REG_PCRE and TCL_REG_EXPLTYPE
+/* to INST_REGEXP over one byte op (instead of TCL_REG_ADVANCED, that is always set) */
+#define	TCL_REG_COMPILE_SHIFT(v) ((v>>28)&000003)
+#define	TCL_REG_COMPILE_UNSHIFT(v) (((v&000003)<<28)|TCL_REG_ADVANCED)
+
 /*
  * Flags values passed to Tcl_RegExpExecObj.
  */

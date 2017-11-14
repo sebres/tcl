@@ -2980,7 +2980,7 @@ TclCompileRegexpCmd(
     Tcl_Token *varTokenPtr;	/* Pointer to the Tcl_Token representing the
 				 * parse of the RE or string. */
     int i, len, exact, sawLast = 0, simple = 0,
-	cflags = TCL_REG_ADVANCED;
+	cflags = 0;
     char *str;
     DefineLineInformation;	/* TIP #280 */
 
@@ -3121,8 +3121,10 @@ TclCompileRegexpCmd(
 	/*
 	 * Pass correct RE compile flags.  We use only Int1 (8-bit), but
 	 * that handles all the flags we want to pass.
+	 * Note that TCL_REG_PCRE/TCL_REG_EXPLTYPE will be mapped to TCL_REG_ADVANCED.
 	 * Don't use TCL_REG_NOSUB as we may have backrefs.
 	 */
+	cflags |= TCL_REG_COMPILE_SHIFT(cflags); /* int to byte */
 	TclEmitInstInt1(INST_REGEXP, cflags, envPtr);
     }
 

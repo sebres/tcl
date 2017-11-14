@@ -671,12 +671,15 @@ Tcl_GetRegExpFromObj(
 
     regexpPtr = (TclRegexp *) objPtr->internalRep.twoPtrValue.ptr1;
 
-    /* if type was not explicit specified */
+    /* own re-type from interp, if type was not explicit specified */
     if ( !(flags & TCL_REG_EXPLTYPE)
       && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
     ) {
 	flags |= TCL_REG_PCRE;
     }
+
+    /* explicit flag has no meaning further - remove it in order to compare */
+    flags &= ~TCL_REG_EXPLTYPE;
 
     if ((objPtr->typePtr != &tclRegexpType) || (regexpPtr->flags != flags)) {
 	pattern = TclGetStringFromObj(objPtr, &length);
@@ -1020,13 +1023,16 @@ CompileRegexp(
 	 */
 
 	/* XXX Should enable PCRE_UTF8 selectively on non-ByteArray Tcl_Obj */
-	pcrecflags = PCRE_NO_UTF8_CHECK | PCRE_DOLLAR_ENDONLY;
+	pcrecflags = PCRE_UTF8 | PCRE_UCP | PCRE_NO_UTF8_CHECK |
+		PCRE_DOLLAR_ENDONLY;
+	/*
 	for (i = 0, p = cstring; i < length; i++) {
 	    if (UCHAR(*p++) > 0x80) {
-		pcrecflags |= PCRE_UTF8;
+		pcrecflags |= PCRE_UTF8 | PCRE_UCP;
 		break;
 	    }
 	}
+	*/
 	if (flags & TCL_REG_NOCASE) {
 	    pcrecflags |= PCRE_CASELESS;
 	}
@@ -1035,6 +1041,9 @@ CompileRegexp(
 	}
 	if (flags & (TCL_REG_NEWLINE|TCL_REG_NLSTOP|TCL_REG_NLANCH)) {
 	    pcrecflags |= PCRE_MULTILINE;
+	}
+	if (flags & ~TCL_REG_NLSTOP /*&& flags & ~TCL_REG_NEWLINE*/) {
+	    pcrecflags |= PCRE_DOTALL;
 	}
 
 	if (cstring[length] != 0) {

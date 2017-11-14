@@ -110,11 +110,7 @@ Tcl_RegexpObjCmd(
 
     indices = 0;
     about = 0;
-#ifdef USE_DEFAULT_PCRE
-    re_type = RETYPE_PCRE;
-#else
-    re_type = RETYPE_CLASSIC;
-#endif
+    re_type = 0;
     cflags = TCL_REG_ADVANCED;
     offset = 0;
     all = 0;
@@ -185,6 +181,11 @@ Tcl_RegexpObjCmd(
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
 	    }
+	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
+		cflags |= TCL_REG_PCRE;
+	    } else {
+		cflags &= ~TCL_REG_PCRE;
+	    }
 	    break;
 	case REGEXP_LAST:
 	    i++;
@@ -216,6 +217,13 @@ Tcl_RegexpObjCmd(
 	return TCL_ERROR;
     }
 
+    /* own re-type from interp, if type was not explicit specified */
+    if ( !(cflags & TCL_REG_EXPLTYPE)
+      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
+    ) {
+	cflags |= TCL_REG_PCRE;
+    }
+
     /*
      * Get the length of the string that we are matching against so we can do
      * the termination test for -all matches. Do this before getting the
@@ -225,7 +233,7 @@ Tcl_RegexpObjCmd(
     if (startIndex) {
 	int stringLength;
 
-	if ((enum re_type_opts) re_type == RETYPE_CLASSIC) {
+	if (!(cflags & TCL_REG_PCRE)) {
 	    stringLength = Tcl_GetCharLength(objv[1]);
 	} else {
 	    if (objv[1]->typePtr == &tclByteArrayType) {
@@ -242,20 +250,12 @@ Tcl_RegexpObjCmd(
 	}
     }
 
-    /*
-     * Handle the odd about case separately, otherwise pass of to appropriate
-     * RE engine.
-     */
-
-    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-	cflags |= TCL_REG_PCRE;
-    }
     regExpr = Tcl_GetRegExpFromObj(interp, objv[0], cflags);
     if (regExpr == NULL) {
 	return TCL_ERROR;
     }
 
-    if ((enum re_type_opts) re_type == RETYPE_CLASSIC) {
+    if (!(cflags & TCL_REG_PCRE)) {
 	if (about) {
 	    if (TclRegAbout(interp, regExpr) < 0) {
 		return TCL_ERROR;
@@ -324,12 +324,7 @@ Tcl_RegsubObjCmd(
 	RETYPE_CLASSIC,	RETYPE_PCRE,
     };
 
-#ifdef USE_DEFAULT_PCRE
-    re_type = RETYPE_PCRE;
-#else
-    re_type = RETYPE_CLASSIC;
-#endif
-    cflags = TCL_REG_ADVANCED;
+    re_type = 0;    cflags = TCL_REG_ADVANCED;
     all = 0;
     offset = 0;
     resultPtr = NULL;
@@ -384,9 +379,15 @@ Tcl_RegsubObjCmd(
 	    if (++idx >= objc) {
 		goto endOfForLoop;
 	    }
+	    cflags |= TCL_REG_EXPLTYPE;
 	    if (Tcl_GetIndexFromObj(interp, objv[idx], re_type_opts, "type",
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
+	    }
+	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
+		cflags |= TCL_REG_PCRE;
+	    } else {
+		cflags &= ~TCL_REG_PCRE;
 	    }
 	    break;
 	case REGSUB_LAST:
@@ -409,10 +410,17 @@ Tcl_RegsubObjCmd(
     objc -= idx;
     objv += idx;
 
+    /* own re-type from interp, if type was not explicit specified */
+    if ( !(cflags & TCL_REG_EXPLTYPE)
+      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
+    ) {
+	cflags |= TCL_REG_PCRE;
+    }
+
     if (startIndex) {
 	int stringLength;
 
-	if ((enum re_type_opts) re_type == RETYPE_CLASSIC) {
+	if (!(cflags & TCL_REG_PCRE)) {
 	    stringLength = Tcl_GetCharLength(objv[1]);
 	} else {
 	    if (objv[1]->typePtr == &tclByteArrayType) {
@@ -429,7 +437,7 @@ Tcl_RegsubObjCmd(
 	}
     }
 
-    if (all && (offset == 0)
+    if (all && (offset == 0) && !(cflags & TCL_REG_PCRE)
 	    && (strpbrk(TclGetString(objv[2]), "&\\") == NULL)
 	    && (strpbrk(TclGetString(objv[0]), "*+?{}()[].\\|^$") == NULL)) {
 	/*
@@ -500,9 +508,6 @@ Tcl_RegsubObjCmd(
 	goto regsubDone;
     }
 
-    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-	cflags |= TCL_REG_PCRE;
-    }
     regExpr = Tcl_GetRegExpFromObj(interp, objv[0], cflags);
     if (regExpr == NULL) {
 	return TCL_ERROR;
@@ -519,152 +524,327 @@ Tcl_RegsubObjCmd(
     } else {
 	objPtr = objv[1];
     }
-    wstring = Tcl_GetUnicodeFromObj(objPtr, &wlen);
     if (objv[2] == objv[0]) {
 	subPtr = Tcl_DuplicateObj(objv[2]);
     } else {
 	subPtr = objv[2];
     }
-    wsubspec = Tcl_GetUnicodeFromObj(subPtr, &wsublen);
 
     result = TCL_OK;
 
-    /*
-     * The following loop is to handle multiple matches within the same source
-     * string; each iteration handles one match and its corresponding
-     * substitution. If "-all" hasn't been specified then the loop body only
-     * gets executed once. We must use 'offset <= wlen' in particular for the
-     * case where the regexp pattern can match the empty string - this is
-     * useful when doing, say, 'regsub -- ^ $str ...' when $str might be
-     * empty.
+    /* 
+     * PCRE works utf8, thus differentiate between utf8 and unicode processing.
      */
+    if (!(cflags & TCL_REG_PCRE)) {
 
-    numMatches = 0;
-    for ( ; offset <= wlen; ) {
+    	/* Classic as unicode */
+
+	wstring = Tcl_GetUnicodeFromObj(objPtr, &wlen);
+	wsubspec = Tcl_GetUnicodeFromObj(subPtr, &wsublen);
 
 	/*
-	 * The flags argument is set if string is part of a larger string, so
-	 * that "^" won't match.
+	 * The following loop is to handle multiple matches within the same source
+	 * string; each iteration handles one match and its corresponding
+	 * substitution. If "-all" hasn't been specified then the loop body only
+	 * gets executed once. We must use 'offset <= wlen' in particular for the
+	 * case where the regexp pattern can match the empty string - this is
+	 * useful when doing, say, 'regsub -- ^ $str ...' when $str might be
+	 * empty.
 	 */
 
-	match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
-		10 /* matches */, ((offset > 0 &&
-		(wstring[offset-1] != (Tcl_UniChar)'\n'))
-		? TCL_REG_NOTBOL : 0));
+	numMatches = 0;
+	for ( ; offset <= wlen; ) {
 
-	if (match < 0) {
-	    result = TCL_ERROR;
-	    goto done;
-	}
-	if (match == 0) {
-	    break;
-	}
-	if (numMatches == 0) {
-	    resultPtr = Tcl_NewUnicodeObj(wstring, 0);
-	    Tcl_IncrRefCount(resultPtr);
-	    if (offset > 0) {
-		/*
-		 * Copy the initial portion of the string in if an offset was
-		 * specified.
-		 */
+	    /*
+	     * The flags argument is set if string is part of a larger string, so
+	     * that "^" won't match.
+	     */
 
-		Tcl_AppendUnicodeToObj(resultPtr, wstring, offset);
+	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
+		    10 /* matches */, ((offset > 0 &&
+		    (wstring[offset-1] != (Tcl_UniChar)'\n'))
+		    ? TCL_REG_NOTBOL : 0));
+
+	    /*if (reflags & TCL_REG_PCRE) {}*/
+	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
+	    if (match < 0) {
+		result = TCL_ERROR;
+		goto done;
 	    }
-	}
-	numMatches++;
+	    if (match == 0) {
+		break;
+	    }
+	    if (numMatches == 0) {
+		resultPtr = Tcl_NewUnicodeObj(wstring, 0);
+		Tcl_IncrRefCount(resultPtr);
+		if (offset > 0) {
+		    /*
+		     * Copy the initial portion of the string in if an offset was
+		     * specified.
+		     */
 
-	/*
-	 * Copy the portion of the source string before the match to the
-	 * result variable.
-	 */
+		    Tcl_AppendUnicodeToObj(resultPtr, wstring, offset);
+		}
+	    }
+	    numMatches++;
 
-	Tcl_RegExpGetInfo(regExpr, &info);
-	start = info.matches[0].start;
-	end = info.matches[0].end;
-	Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, start);
+	    /*
+	     * Copy the portion of the source string before the match to the
+	     * result variable.
+	     */
 
-	/*
-	 * Append the subSpec argument to the variable, making appropriate
-	 * substitutions. This code is a bit hairy because of the backslash
-	 * conventions and because the code saves up ranges of characters in
-	 * subSpec to reduce the number of calls to Tcl_SetVar.
-	 */
+	    Tcl_RegExpGetInfo(regExpr, &info);
+	    start = info.matches[0].start;
+	    end = info.matches[0].end;
+	    //printf("********** append %d, %d\n", start, end);
+	    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, start);
 
-	wsrc = wfirstChar = wsubspec;
-	wend = wsubspec + wsublen;
-	for (ch = *wsrc; wsrc != wend; wsrc++, ch = *wsrc) {
-	    if (ch == '&') {
-		idx = 0;
-	    } else if (ch == '\\') {
-		ch = wsrc[1];
-		if ((ch >= '0') && (ch <= '9')) {
-		    idx = ch - '0';
-		} else if ((ch == '\\') || (ch == '&')) {
-		    *wsrc = ch;
-		    Tcl_AppendUnicodeToObj(resultPtr, wfirstChar,
-			    wsrc - wfirstChar + 1);
-		    *wsrc = '\\';
-		    wfirstChar = wsrc + 2;
-		    wsrc++;
-		    continue;
+	    /*
+	     * Append the subSpec argument to the variable, making appropriate
+	     * substitutions. This code is a bit hairy because of the backslash
+	     * conventions and because the code saves up ranges of characters in
+	     * subSpec to reduce the number of calls to Tcl_SetVar.
+	     */
+
+	    wsrc = wfirstChar = wsubspec;
+	    wend = wsubspec + wsublen;
+	    for (ch = *wsrc; wsrc != wend; wsrc++, ch = *wsrc) {
+		if (ch == '&') {
+		    idx = 0;
+		} else if (ch == '\\') {
+		    ch = wsrc[1];
+		    if ((ch >= '0') && (ch <= '9')) {
+			idx = ch - '0';
+		    } else if ((ch == '\\') || (ch == '&')) {
+			*wsrc = ch;
+			Tcl_AppendUnicodeToObj(resultPtr, wfirstChar,
+				wsrc - wfirstChar + 1);
+			*wsrc = '\\';
+			wfirstChar = wsrc + 2;
+			wsrc++;
+			continue;
+		    } else {
+			continue;
+		    }
 		} else {
 		    continue;
 		}
-	    } else {
-		continue;
+
+		if (wfirstChar != wsrc) {
+		    Tcl_AppendUnicodeToObj(resultPtr, wfirstChar,
+			    wsrc - wfirstChar);
+		}
+
+		if (idx <= info.nsubs) {
+		    subStart = info.matches[idx].start;
+		    subEnd = info.matches[idx].end;
+		    if ((subStart >= 0) && (subEnd >= 0)) {
+			Tcl_AppendUnicodeToObj(resultPtr,
+				wstring + offset + subStart, subEnd - subStart);
+		    }
+		}
+
+		if (*wsrc == '\\') {
+		    wsrc++;
+		}
+		wfirstChar = wsrc + 1;
 	    }
 
 	    if (wfirstChar != wsrc) {
-		Tcl_AppendUnicodeToObj(resultPtr, wfirstChar,
-			wsrc - wfirstChar);
+		Tcl_AppendUnicodeToObj(resultPtr, wfirstChar, wsrc - wfirstChar);
 	    }
 
-	    if (idx <= info.nsubs) {
-		subStart = info.matches[idx].start;
-		subEnd = info.matches[idx].end;
-		if ((subStart >= 0) && (subEnd >= 0)) {
-		    Tcl_AppendUnicodeToObj(resultPtr,
-			    wstring + offset + subStart, subEnd - subStart);
-		}
-	    }
-
-	    if (*wsrc == '\\') {
-		wsrc++;
-	    }
-	    wfirstChar = wsrc + 1;
-	}
-
-	if (wfirstChar != wsrc) {
-	    Tcl_AppendUnicodeToObj(resultPtr, wfirstChar, wsrc - wfirstChar);
-	}
-
-	if (end == 0) {
-	    /*
-	     * Always consume at least one character of the input string in
-	     * order to prevent infinite loops.
-	     */
-
-	    if (offset < wlen) {
-		Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, 1);
-	    }
-	    offset++;
-	} else {
-	    offset += end;
-	    if (start == end) {
+	    if (end == 0) {
 		/*
-		 * We matched an empty string, which means we must go forward
-		 * one more step so we don't match again at the same spot.
+		 * Always consume at least one character of the input string in
+		 * order to prevent infinite loops.
 		 */
 
 		if (offset < wlen) {
 		    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, 1);
 		}
 		offset++;
+	    } else {
+		offset += end;
+		if (start == end) {
+		    /*
+		     * We matched an empty string, which means we must go forward
+		     * one more step so we don't match again at the same spot.
+		     */
+
+		    if (offset < wlen) {
+			Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, 1);
+		    }
+		    offset++;
+		}
+	    }
+	    if (!all) {
+		break;
 	    }
 	}
-	if (!all) {
-	    break;
+
+    } else {
+
+    	/* PCRE as utf8 */
+
+    	char ch, *wsrc, *wfirstChar, *cstring, *wsubspec, *wend;
+
+	if (objPtr->typePtr == &tclByteArrayType) {
+	    cstring = Tcl_GetByteArrayFromObj(objPtr, &wlen);
+	} else {
+		/* XXX validate offset by char length */
+	    cstring = Tcl_GetStringFromObj(objPtr, &wlen);
 	}
+	if (subPtr->typePtr == &tclByteArrayType) {
+	    wsubspec = Tcl_GetByteArrayFromObj(subPtr, &wsublen);
+	} else {
+		/* XXX validate offset by char length */
+	    wsubspec = Tcl_GetStringFromObj(subPtr, &wsublen);
+	}
+
+	/*
+	 * The following loop is to handle multiple matches within the same source
+	 * string; each iteration handles one match and its corresponding
+	 * substitution. If "-all" hasn't been specified then the loop body only
+	 * gets executed once. We must use 'offset <= wlen' in particular for the
+	 * case where the regexp pattern can match the empty string - this is
+	 * useful when doing, say, 'regsub -- ^ $str ...' when $str might be
+	 * empty.
+	 */
+
+	numMatches = 0;
+	for ( ; offset <= wlen; ) {
+
+	    /*
+	     * The flags argument is set if string is part of a larger string, so
+	     * that "^" won't match.
+	     */
+
+	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
+		    10 /* matches */, ((offset > 0 &&
+		    (cstring[offset-1] != '\n'))
+		    ? TCL_REG_NOTBOL : 0));
+
+	    /*if (reflags & TCL_REG_PCRE) {}*/
+	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
+	    if (match < 0) {
+		result = TCL_ERROR;
+		goto done;
+	    }
+	    if (match == 0) {
+		break;
+	    }
+	    if (numMatches == 0) {
+		resultPtr = Tcl_NewStringObj(cstring, 0);
+		Tcl_IncrRefCount(resultPtr);
+		if (offset > 0) {
+		    /*
+		     * Copy the initial portion of the string in if an offset was
+		     * specified.
+		     */
+
+		    Tcl_AppendToObj(resultPtr, cstring, offset);
+		}
+	    }
+	    numMatches++;
+
+	    /*
+	     * Copy the portion of the source string before the match to the
+	     * result variable.
+	     */
+
+	    Tcl_RegExpGetInfo(regExpr, &info);
+	    start = info.matches[0].start;
+	    end = info.matches[0].end;
+	    //printf("********** append %d, %d\n", start, end);
+	    Tcl_AppendToObj(resultPtr, cstring + offset, start);
+
+	    /*
+	     * Append the subSpec argument to the variable, making appropriate
+	     * substitutions. This code is a bit hairy because of the backslash
+	     * conventions and because the code saves up ranges of characters in
+	     * subSpec to reduce the number of calls to Tcl_SetVar.
+	     */
+
+	    wsrc = wfirstChar = wsubspec;
+	    wend = wsubspec + wsublen;
+	    for (ch = *wsrc; wsrc != wend; wsrc++, ch = *wsrc) {
+		if (ch == '&') {
+		    idx = 0;
+		} else if (ch == '\\') {
+		    ch = wsrc[1];
+		    if ((ch >= '0') && (ch <= '9')) {
+			idx = ch - '0';
+		    } else if ((ch == '\\') || (ch == '&')) {
+			*wsrc = ch;
+			Tcl_AppendToObj(resultPtr, wfirstChar,
+				wsrc - wfirstChar + 1);
+			*wsrc = '\\';
+			wfirstChar = wsrc + 2;
+			wsrc++;
+			continue;
+		    } else {
+			continue;
+		    }
+		} else {
+		    continue;
+		}
+
+		if (wfirstChar != wsrc) {
+		    Tcl_AppendToObj(resultPtr, wfirstChar,
+			    wsrc - wfirstChar);
+		}
+
+		if (idx <= info.nsubs) {
+		    subStart = info.matches[idx].start;
+		    subEnd = info.matches[idx].end;
+		    if ((subStart >= 0) && (subEnd >= 0)) {
+			Tcl_AppendToObj(resultPtr,
+				cstring + offset + subStart, subEnd - subStart);
+		    }
+		}
+
+		if (*wsrc == '\\') {
+		    wsrc++;
+		}
+		wfirstChar = wsrc + 1;
+	    }
+
+	    if (wfirstChar != wsrc) {
+		Tcl_AppendToObj(resultPtr, wfirstChar, wsrc - wfirstChar);
+	    }
+
+	    if (end == 0) {
+		/*
+		 * Always consume at least one character of the input string in
+		 * order to prevent infinite loops.
+		 */
+
+		if (offset < wlen) {
+		    Tcl_AppendToObj(resultPtr, cstring + offset, 1);
+		}
+		offset++;
+	    } else {
+		offset += end;
+		if (start == end) {
+		    /*
+		     * We matched an empty string, which means we must go forward
+		     * one more step so we don't match again at the same spot.
+		     */
+
+		    if (offset < wlen) {
+			Tcl_AppendToObj(resultPtr, cstring + offset, 1);
+		    }
+		    offset++;
+		}
+	    }
+	    if (!all) {
+		break;
+	    }
+	}
+
+	wstring = (Tcl_UniChar*)cstring;
+
     }
 
     /*
@@ -682,7 +862,11 @@ Tcl_RegsubObjCmd(
 	resultPtr = objv[1];
 	Tcl_IncrRefCount(resultPtr);
     } else if (offset < wlen) {
-	Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, wlen - offset);
+    	if (!(cflags & TCL_REG_PCRE)) {
+	    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, wlen - offset);
+	} else {
+	    Tcl_AppendToObj(resultPtr, (char *)wstring + offset, wlen - offset);
+	}
     }
     if (objc == 4) {
 	if (Tcl_ObjSetVar2(interp, objv[3], NULL, resultPtr, 0) == NULL) {
