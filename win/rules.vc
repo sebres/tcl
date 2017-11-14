@@ -447,6 +447,9 @@ This compiler does not support profile guided optimization.
 !endif
 !endif
 
+# Via command line specified linker options (e. g. to compile with PCRE):
+LINKERFLAGS     = $(LINKERFLAGS) $(ADDLINKOPTS)
+
 #----------------------------------------------------------
 # Set our defines now armed with our options.
 #----------------------------------------------------------
