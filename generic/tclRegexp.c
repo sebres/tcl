@@ -1232,9 +1232,11 @@ FinalizeRegexp(
 	ckfree(tsdPtr->patterns[i]);
 	tsdPtr->patterns[i] = NULL;
     }
+#ifdef HAVE_PCRE
     if (tsdPtr->matches != NULL) {
 	ckfree((char *) tsdPtr->matches);
     }
+#endif
     /*
      * We may find ourselves reinitialized if another finalization routine
      * invokes regexps.
