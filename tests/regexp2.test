@@ -1,0 +1,87 @@
+# Commands covered:  regexp, regsub
+#
+# This file contains a collection of tests for one or more of the Tcl
+# built-in commands.  Sourcing this file into Tcl runs the tests and
+# generates output for errors.  No output means no errors were found.
+#
+# Copyright (c) 1991-1993 The Regents of the University of California.
+# Copyright (c) 1998 Sun Microsystems, Inc.
+# Copyright (c) 1998-1999 by Scriptics Corporation.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+if {[lsearch [namespace children] ::tcltest] == -1} {
+    package require tcltest 2
+    namespace import -force ::tcltest::*
+}
+
+# prepare:
+namespace inscope ::tcltest {rename cleanupTests _cleanupTests; proc cleanupTests {args} {}}
+rename test __test
+proc test {args} {}
+
+catch {
+
+  # test all available regexp engines (switch default to another one):
+  set org_reeng [interp regexp {}]
+
+  foreach reeng {classic pcre} {
+
+    proc _test_reeng_available {} {
+      variable reeng
+      interp regexp {} $reeng
+      # note we should not use simple regexp here (to avoid compile it via TclReToGlob to the glob expr):
+      if {[catch { regexp -- {^(_)(?!_)$} {_} } errMsg]} {
+        puts "ignore test of engine \"$reeng\": $errMsg"
+        return 0
+      }
+      return 1
+    }
+
+    testConstraint reeng_$reeng [_test_reeng_available]
+
+    # wrapper for tests from regexp.test:
+    proc test {args} {
+      variable reeng
+      uplevel [list __test [lindex $args 0]-$reeng {*}[lrange $args 1 end]]
+    }
+
+# ---------------------------------------------------------------------------
+
+# special engine-related tests:
+
+test regexp-0.1 {test of interim "switch" of engine} -body {
+  # this test will fail if current engine is not classic (no lookbehind syntax), and if it will be not
+  # switched via parameter -type classic (regardless PCRE available or not)
+  set re {(?<![xyz])abc|(?<!\d)cba}
+  list [catch {regexp -inline -type classic $re "1cba xabc"} msg] $msg \
+       [catch {regexp -inline -type classic $re "acba"} msg] $msg \
+       [catch {regexp -inline -type classic $re "1abc"} msg] $msg
+} -match glob -result \
+{1 {*quantifier operand invalid} 1 {*quantifier operand invalid} 1 {*quantifier operand invalid}}
+
+# ---------------------------------------------------------------------------
+
+    # skip all tests (already processed directly in regexp.test):
+    if {$reeng eq $org_reeng} continue
+    # skip all tests in order to avoid errors in test-suite if default regexp engine not available:
+    if {![testConstraint reeng_$reeng]} {
+      continue
+    }
+
+    # evaluate the tests from regexp.test:
+    source -encoding utf-8 [file join [file dirname [info script]] regexp.test]
+
+  }; #end of engine cycle
+
+} errMsg opt
+
+# restore
+interp regexp {} $org_reeng
+rename test {}; rename __test test
+namespace inscope ::tcltest {rename cleanupTests {}; rename _cleanupTests cleanupTests}
+
+# cleanup
+::tcltest::cleanupTests
+return {*}$opt -level 1 $errMsg

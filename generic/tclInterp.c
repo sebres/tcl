@@ -976,6 +976,8 @@ Tcl_InterpObjCmd(
 	    } else {
 		slaveInterp->flags &= ~(INTERP_PCRE);
 	    }
+	    Tcl_SetObjResult(interp, objv[3]);
+	    return TCL_OK;
 	}
 	if (slaveInterp->flags & INTERP_PCRE) {
 	    Tcl_SetObjResult(interp, Tcl_NewStringObj("pcre", -1));

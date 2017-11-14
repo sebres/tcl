@@ -2979,24 +2979,22 @@ TclCompileRegexpCmd(
 {
     Tcl_Token *varTokenPtr;	/* Pointer to the Tcl_Token representing the
 				 * parse of the RE or string. */
-    int i, len, nocase, exact, sawLast, simple;
+    int i, len, exact, sawLast = 0, simple = 0,
+	cflags = TCL_REG_ADVANCED;
     char *str;
     DefineLineInformation;	/* TIP #280 */
 
     /*
      * We are only interested in compiling simple regexp cases. Currently
      * supported compile cases are:
-     *   regexp ?-nocase? ?--? staticString $var
-     *   regexp ?-nocase? ?--? {^staticString$} $var
+     *   regexp ?-nocase? ?-type ...? ?--? staticString $var
+     *   regexp ?-nocase? ?-type ...? ?--? {^staticString$} $var
      */
 
     if (parsePtr->numWords < 3) {
 	return TCL_ERROR;
     }
 
-    simple = 0;
-    nocase = 0;
-    sawLast = 0;
     varTokenPtr = parsePtr->tokenPtr;
 
     /*
@@ -3020,8 +3018,27 @@ TclCompileRegexpCmd(
 	    sawLast++;
 	    i++;
 	    break;
-	} else if ((len > 1) && (strncmp(str,"-nocase",(unsigned)len) == 0)) {
-	    nocase = 1;
+	} else if ((len-- > 1) && *str++ == '-') {
+	    if (strncmp(str, "nocase", (unsigned)len) == 0) {
+		cflags |= TCL_REG_NOCASE;
+	    } else if (strncmp(str, "type", (unsigned)len) == 0) {
+		i++;
+		varTokenPtr = TokenAfter(varTokenPtr);
+		if (varTokenPtr->type != TCL_TOKEN_SIMPLE_WORD) {
+		    return TCL_ERROR; /* runtime */
+		}
+		str = (char *) varTokenPtr[1].start;
+		len = varTokenPtr[1].size;
+		if (strncmp(str, "classic", (unsigned)len) == 0) {
+		   cflags = (cflags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
+		} else if (strncmp(str, "pcre", (unsigned)len) == 0) {
+		   cflags |= TCL_REG_PCRE | TCL_REG_EXPLTYPE;
+		} else {
+		    return TCL_ERROR; /* runtime */
+		}
+	    } else {
+		return TCL_ERROR; /* runtime */
+	    }
 	} else {
 	    /*
 	     * Not an option we recognize.
@@ -3094,9 +3111,10 @@ TclCompileRegexpCmd(
     CompileWord(envPtr, varTokenPtr, interp, parsePtr->numWords-1);
 
     if (simple) {
-	if (exact && !nocase) {
+	if (exact && !(cflags & TCL_REG_NOCASE)) {
 	    TclEmitOpcode(INST_STR_EQ, envPtr);
 	} else {
+	    int nocase = (cflags & TCL_REG_NOCASE) ? 1 : 0;
 	    TclEmitInstInt1(INST_STR_MATCH, nocase, envPtr);
 	}
     } else {
@@ -3105,7 +3123,6 @@ TclCompileRegexpCmd(
 	 * that handles all the flags we want to pass.
 	 * Don't use TCL_REG_NOSUB as we may have backrefs.
 	 */
-	int cflags = TCL_REG_ADVANCED | (nocase ? TCL_REG_NOCASE : 0);
 	TclEmitInstInt1(INST_REGEXP, cflags, envPtr);
     }
 

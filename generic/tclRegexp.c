@@ -671,10 +671,13 @@ Tcl_GetRegExpFromObj(
 
     regexpPtr = (TclRegexp *) objPtr->internalRep.twoPtrValue.ptr1;
 
-    /* XXX Need to have case where -type classic isn't ignored in regexp/sub */
-    if ((interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)) {
+    /* if type was not explicit specified */
+    if ( !(flags & TCL_REG_EXPLTYPE)
+      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
+    ) {
 	flags |= TCL_REG_PCRE;
     }
+
     if ((objPtr->typePtr != &tclRegexpType) || (regexpPtr->flags != flags)) {
 	pattern = TclGetStringFromObj(objPtr, &length);
 

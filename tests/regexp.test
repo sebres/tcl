@@ -15,7 +15,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     package require tcltest 2
     namespace import -force ::tcltest::*
 }
-interp regexp {} pcre
+
 testConstraint exec [llength [info commands exec]]
 
 catch {unset foo}

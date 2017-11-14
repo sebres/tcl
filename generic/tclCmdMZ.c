@@ -179,6 +179,8 @@ Tcl_RegexpObjCmd(
 	    if (++i >= objc) {
 		goto endOfForLoop;
 	    }
+	    /* explicit specified */
+	    cflags |= TCL_REG_EXPLTYPE;
 	    if (Tcl_GetIndexFromObj(interp, objv[i], re_type_opts, "type",
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
