@@ -15,7 +15,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     package require tcltest 2
     namespace import -force ::tcltest::*
 }
-
+interp regexp {} pcre
 testConstraint exec [llength [info commands exec]]
 
 catch {unset foo}
@@ -225,13 +225,13 @@ test regexp-6.2 {regexp errors} {
 } {1 {wrong # args: should be "regexp ?switches? exp string ?matchVar? ?subMatchVar subMatchVar ...?"}}
 test regexp-6.3 {regexp errors} {
     list [catch {regexp -gorp a} msg] $msg
-} {1 {bad switch "-gorp": must be -all, -about, -indices, -inline, -expanded, -line, -linestop, -lineanchor, -nocase, -start, or --}}
-test regexp-6.4 {regexp errors} {
+} {1 {bad switch "-gorp": must be -all, -about, -indices, -inline, -expanded, -line, -linestop, -lineanchor, -nocase, -start, -type, or --}}
+test regexp-6.4 {regexp errors} -body {
     list [catch {regexp a( b} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
-test regexp-6.5 {regexp errors} {
-    list [catch {regexp a( b} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
+} -match glob -result {1 {couldn't compile*}}
+test regexp-6.5 {regexp errors} -body {
+    list [catch {regexp a) b} msg] $msg
+} -match glob -result {1 {couldn't compile*}}
 test regexp-6.6 {regexp errors} {
     list [catch {regexp a a f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1} msg] $msg
 } {0 1}
@@ -391,10 +391,10 @@ test regexp-11.4 {regsub errors} {
 } {1 {wrong # args: should be "regsub ?switches? exp string subSpec ?varName?"}}
 test regexp-11.5 {regsub errors} {
     list [catch {regsub -gorp a b c} msg] $msg
-} {1 {bad switch "-gorp": must be -all, -nocase, -expanded, -line, -linestop, -lineanchor, -start, or --}}
-test regexp-11.6 {regsub errors} {
+} {1 {bad switch "-gorp": must be -all, -nocase, -expanded, -line, -linestop, -lineanchor, -start, -type, or --}}
+test regexp-11.6 {regsub errors} -body {
     list [catch {regsub -nocase a( b c d} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
+} -match glob -result {1 {couldn't compile*}}
 test regexp-11.7 {regsub errors} {
     catch {unset f1}
     set f1 44

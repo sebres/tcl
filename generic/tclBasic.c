@@ -500,6 +500,13 @@ Tcl_CreateInterp(void)
     iPtr->evalFlags = 0;
     iPtr->scriptFile = NULL;
     iPtr->flags = 0;
+#ifdef HAVE_PCRE
+#ifdef USE_DEFAULT_PCRE
+    if (getenv("TCL_REGEXP_CLASSIC") == NULL) { iPtr->flags |= INTERP_PCRE; }
+#else
+    if (getenv("TCL_REGEXP_PCRE") != NULL) { iPtr->flags |= INTERP_PCRE; }
+#endif
+#endif
     iPtr->tracePtr = NULL;
     iPtr->tracesForbiddingInline = 0;
     iPtr->activeCmdTracePtr = NULL;
