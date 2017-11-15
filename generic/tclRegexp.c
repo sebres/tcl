@@ -630,6 +630,33 @@ Tcl_RegExpGetInfo(
     }
 }
 
+
+int
+TclAdjustRegExpFlags(
+    Tcl_Interp *interp,		/* To access the interp regexp default. */
+    Tcl_Obj *objPtr,		/* Object whose string rep contains regular
+				 * expression pattern. */
+    int flags			/* Regular expression compilation flags. */
+) {
+    /* if type is not explicit specified */
+    if (!(flags & TCL_REG_EXPLTYPE)) {
+	/* own re-type from interp */
+	if ((interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)) {
+	    flags |= TCL_REG_PCRE;
+	}
+	/* if does not work in PCRE - switch to classic (backwards compatibility) */
+	if ((flags & TCL_REG_PCRE)) {
+	    const char *regStr = TclGetString(objPtr);
+	    if (*regStr == '*' && (objPtr->length >= 4) 
+	    	&& (memcmp("***=", regStr, 4) == 0)
+	    ) {
+		flags = (flags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
+	    }
+	}
+    }
+    return flags;
+}
+
 /*
  *----------------------------------------------------------------------
  *
@@ -671,11 +698,10 @@ Tcl_GetRegExpFromObj(
 
     regexpPtr = (TclRegexp *) objPtr->internalRep.twoPtrValue.ptr1;
 
-    /* own re-type from interp, if type was not explicit specified */
-    if ( !(flags & TCL_REG_EXPLTYPE)
-      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
-    ) {
-	flags |= TCL_REG_PCRE;
+    /* if type is not explicit specified */
+    if (!(flags & TCL_REG_EXPLTYPE)) {
+	/* own re-type from interp, disable PCRE if needed */
+	flags = TclAdjustRegExpFlags(interp, objPtr, flags);
     }
 
     /* explicit flag has no meaning further - remove it in order to compare */
@@ -1039,10 +1065,10 @@ CompileRegexp(
 	if (flags & TCL_REG_EXPANDED) {
 	    pcrecflags |= PCRE_EXTENDED;
 	}
-	if (flags & (TCL_REG_NEWLINE|TCL_REG_NLSTOP|TCL_REG_NLANCH)) {
+	if (flags & TCL_REG_NLANCH) {
 	    pcrecflags |= PCRE_MULTILINE;
 	}
-	if (flags & ~TCL_REG_NLSTOP /*&& flags & ~TCL_REG_NEWLINE*/) {
+	if (!(flags & TCL_REG_NLSTOP)) {
 	    pcrecflags |= PCRE_DOTALL;
 	}
 
@@ -1515,6 +1541,7 @@ TclRegexpPCRE(
 {
 #ifdef HAVE_PCRE
     int i, match, eflags, stringLength, matchelems, *matches;
+    int offsetDiff = 0;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
     pcre *re;
@@ -1541,6 +1568,14 @@ TclRegexpPCRE(
 	    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
 	}
 	eflags |= PCRE_NOTBOL;
+	
+	/* avoid bad offset error (PCRE_ERROR_BADOFFSET) */
+	if (offset >= stringLength) {
+	    /* safe offset to correct indices if empty matched */
+	    offsetDiff = offset;
+	    /* offset (and string) to NTS char */
+	    offset = stringLength++;
+	}
     }
 
     objc -= 2;
@@ -1562,10 +1597,15 @@ TclRegexpPCRE(
 		offset, eflags, matches, matchelems);
 
 	if (match < -1) {
-	    char buf[32 + TCL_INTEGER_SPACE];
-	    sprintf(buf, "pcre_exec returned error code %d", match);
-	    Tcl_AppendResult(interp, buf, NULL);
-	    return TCL_ERROR;
+	    /* offset is out of range (bad utf, wrong length etc) */
+	    if (match == PCRE_ERROR_BADOFFSET) {
+		match = PCRE_ERROR_NOMATCH;
+	    } else {
+		char buf[32 + TCL_INTEGER_SPACE];
+		sprintf(buf, "pcre_exec returned error code %d", match);
+		Tcl_AppendResult(interp, buf, NULL);
+		return TCL_ERROR;
+	    }
 	}
 
 	if (match == 0) {
@@ -1604,9 +1644,10 @@ TclRegexpPCRE(
 	    /*
 	     * It's the number of substitutions, plus one for the matchVar at
 	     * index 0
+	     * Note we can get fewer matches as specified (thus just use [-1, -1] indices)
 	     */
 
-	    objc = match;
+	    objc = regexpPtr->re.re_nsub + 1;
 	    if (all <= 1) {
 		resultPtr = Tcl_NewObj();
 	    }
@@ -1616,8 +1657,13 @@ TclRegexpPCRE(
 	    int start, end;
 
 	    if (i < match) {
-		start = matches[i*2];
-		end = matches[i*2 + 1];
+	    	if (!offsetDiff) {
+		    start = matches[i*2];
+		    end = matches[i*2 + 1];
+	    	} else {
+		    /* if out of range we've always empty match [offs, offs-1] */
+		    end = start = offsetDiff;
+		}
 	    } else {
 		start = -1;
 		end = -1;
@@ -1669,11 +1715,7 @@ TclRegexpPCRE(
 	 * matches[1] is the match end point of the full RE match.
 	 */
 
-	if (matches[0] == matches[1]) {
-	    offset++;
-	} else {
-	    offset = matches[1];
-	}
+	offset = (matches[1] > matches[0]) ? matches[1] : matches[0] + 1;
 	all++;
 	eflags |= PCRE_NOTBOL;
 	if (offset >= stringLength) {

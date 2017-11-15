@@ -17,6 +17,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 }
 
 testConstraint exec [llength [info commands exec]]
+testConstraint not_pcre [expr {[interp regexp {}] ne "pcre"}]
 
 catch {unset foo}
 test regexp-1.1 {basic regexp operation} {
@@ -517,10 +518,15 @@ test regexp-16.3 {regsub -start} {
     catch {unset x}
     list [regsub -all -start 3 {z} hello {/&} x] $x
 } {0 hello}
-test regexp-16.4 {regsub -start, \A behavior} {
-    set out {}
-    lappend out [regsub -start 0 -all {\A(\w)} {abcde} {/\1} x] $x
-    lappend out [regsub -start 2 -all {\A(\w)} {abcde} {/\1} x] $x
+test regexp-16.4 {regsub -start, \A (resp. \G) behavior} {
+    if {[interp regexp {}] eq "classic"} {
+	list [regsub -start 0 -all {\A(\w)} {abcde} {/\1} x] $x \
+	     [regsub -start 2 -all {\A(\w)} {abcde} {/\1} x] $x
+    } else {
+    	# PCRE differentiate \A from \G assertions (\A is true only at begin, thus by first match):
+	list [regsub -start 0 -all {\G(\w)} {abcde} {/\1} x] $x \
+	     [regsub -start 2 -all {\G(\w)} {abcde} {/\1} x] $x
+    }
 } {5 /a/b/c/d/e 3 ab/c/d/e}
 test regexp-16.5 {regsub -start, double option} {
     list [regsub -start 2 -start 0 a abc c x] $x
@@ -621,9 +627,11 @@ test regexp-20.1 {regsub shared object shimmering} {
     regsub $a $c $b d 
     list $d [string length $d] [string bytelength $d]
 } {abcdefghijklmnopqurstuvwxyz0123456789 37 37}
-test regexp-20.2 {regsub shared object shimmering with -about} {
+test regexp-20.2 {regsub shared object shimmering with -about} -constraints {
+    not_pcre
+} -body {
     eval regexp -about abc
-} {0 {}}
+} -result {0 {}}
 
 test regexp-21.1 {regsub works with empty string} {
     regsub -- ^ {} foo
@@ -716,7 +724,7 @@ test regexp-22.4 {Bug 3606139} -setup {
 	[a 668]([a 55])[a 668]([a 55])[a 668]([a 55])[a 511]] {}] a
 } -cleanup {
     rename a {}
-} -returnCodes 1 -result {couldn't compile regular expression pattern: nfa has too many states}
+} -returnCodes error -match glob -result {couldn't compile *}
 test regexp-22.5 {Bug 3610026} -setup {
     set e {}
     set cp 99
@@ -727,7 +735,7 @@ test regexp-22.5 {Bug 3610026} -setup {
     regexp -about $e
 } -cleanup {
     unset -nocomplain e cp
-} -returnCodes error  -match glob -result {*too many colors*}
+} -returnCodes error -match glob -result {couldn't compile *}
 test regexp-22.6 {Bug 6585b21ca8} {
     expr {[regexp {(\w).*?\1} Programmer m] ? $m : "<NONE>"}
 } rogr
@@ -960,7 +968,11 @@ test regexp-26.8 {Tcl bug 2826551: diff regexp with -line option} {
 } "{@1\n2\n+3\n} {@4\n-5\n+6\n7\n} {@8\n9\n}"
 test regexp-26.9 {Tcl bug 2826551: diff regexp with embedded -line option} {
     set data "@1\n2\n+3\n@4\n-5\n+6\n7\n@8\n9\n"
-    regexp -all -inline {(?n)^@.*\n(?:[^@].*\n?)*} $data
+    if {[interp regexp {}] eq "classic"} {
+	regexp -all -inline {(?n)^@.*\n(?:[^@].*\n?)*} $data
+    } else {
+    	regexp -all -inline {(?m-s)^@.*\n(?:[^@].*\n?)*} $data
+    }
 } "{@1\n2\n+3\n} {@4\n-5\n+6\n7\n} {@8\n9\n}"
 test regexp-26.10 {regexp with -line option} {
     regexp -all -inline -line -- {a*} "a\n"

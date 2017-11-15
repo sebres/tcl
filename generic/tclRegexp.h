@@ -49,6 +49,8 @@ typedef struct TclRegexp {
 				 * compiled regexp. */
 } TclRegexp;
 
+int TclAdjustRegExpFlags(Tcl_Interp *, Tcl_Obj *, int flags);
+
 #endif /* _TCLREGEXP */
 
 /*

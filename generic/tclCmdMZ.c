@@ -176,15 +176,14 @@ Tcl_RegexpObjCmd(
 		goto endOfForLoop;
 	    }
 	    /* explicit specified */
-	    cflags |= TCL_REG_EXPLTYPE;
 	    if (Tcl_GetIndexFromObj(interp, objv[i], re_type_opts, "type",
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
 	    }
 	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-		cflags |= TCL_REG_PCRE;
+		cflags |= TCL_REG_PCRE | TCL_REG_EXPLTYPE;
 	    } else {
-		cflags &= ~TCL_REG_PCRE;
+		cflags = (cflags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
 	    }
 	    break;
 	case REGEXP_LAST:
@@ -217,11 +216,10 @@ Tcl_RegexpObjCmd(
 	return TCL_ERROR;
     }
 
-    /* own re-type from interp, if type was not explicit specified */
-    if ( !(cflags & TCL_REG_EXPLTYPE)
-      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
-    ) {
-	cflags |= TCL_REG_PCRE;
+    /* if type is not explicit specified */
+    if (!(cflags & TCL_REG_EXPLTYPE)) {
+	/* own re-type from interp, disable PCRE if needed */
+	cflags = TclAdjustRegExpFlags(interp, objv[0], cflags);
     }
 
     /*
@@ -379,15 +377,14 @@ Tcl_RegsubObjCmd(
 	    if (++idx >= objc) {
 		goto endOfForLoop;
 	    }
-	    cflags |= TCL_REG_EXPLTYPE;
 	    if (Tcl_GetIndexFromObj(interp, objv[idx], re_type_opts, "type",
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
 	    }
 	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-		cflags |= TCL_REG_PCRE;
+		cflags |= TCL_REG_PCRE | TCL_REG_EXPLTYPE;
 	    } else {
-		cflags &= ~TCL_REG_PCRE;
+		cflags = (cflags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
 	    }
 	    break;
 	case REGSUB_LAST:
@@ -410,11 +407,10 @@ Tcl_RegsubObjCmd(
     objc -= idx;
     objv += idx;
 
-    /* own re-type from interp, if type was not explicit specified */
-    if ( !(cflags & TCL_REG_EXPLTYPE)
-      && (interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)
-    ) {
-	cflags |= TCL_REG_PCRE;
+    /* if type is not explicit specified */
+    if (!(cflags & TCL_REG_EXPLTYPE)) {
+	/* own re-type from interp, disable PCRE if needed */
+	cflags = TclAdjustRegExpFlags(interp, objv[0], cflags);
     }
 
     if (startIndex) {
