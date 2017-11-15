@@ -75,12 +75,6 @@ typedef struct ThreadSpecificData {
     struct TclRegexp *regexps[NUM_REGEXPS];
 				/* Compiled forms of above strings. Also
 				 * malloc-ed, or NULL if not in use yet. */
-#ifdef HAVE_PCRE
-    Tcl_RegExpIndices *matches;	/* To support PCRE in Tcl_RegExpGetInfo, we
-				 * need a classic info matches area to store
-				 * data in. */
-    int matchelems;		/* length of matches */
-#endif
 } ThreadSpecificData;
 
 static Tcl_ThreadDataKey dataKey;
@@ -472,7 +466,7 @@ Tcl_RegExpExecObj(
     if (reflags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
 	const char *matchstr;
-	int match, pcreeflags, nm = (regexpPtr->re.re_nsub + 1) * 3;
+	int match, eflags, nm = (regexpPtr->re.re_nsub + 1) * 3;
 
 	if (textObj->typePtr == &tclByteArrayType) {
 	    matchstr = Tcl_GetByteArrayFromObj(textObj, &length);
@@ -484,19 +478,28 @@ Tcl_RegExpExecObj(
 	    offset = length;
 	}
 
-	pcreeflags = 0;
+	regexpPtr->details.rm_extend.rm_so = offset;
+
+	eflags = PCRE_NO_UTF8_CHECK;
 	if (flags & TCL_REG_NOTBOL) {
-	    pcreeflags |= PCRE_NOTBOL;
+	    eflags |= PCRE_NOTBOL;
+	} if (offset >= length) {
+	    /* 
+	     * PCRE has currently a bug by multiline with offset after "\n":
+	     * ^ - meant assert start of string (or line, in multiline mode),
+	     * but it will be not found by offset after "\n" regardless multiline.
+	     * Thus just let do a small adustment (shift begin of string to offset).
+	     * Not we'll do it always in order to regard enable multiline by exec using `(?m)`.
+	     */
+	    matchstr = "";
+	    offset = 0;
+	    length = 0;
 	}
 
+	//printf("**** pcre_exec: %d(%d)..%d, flg:%X\n", offset, regexpPtr->details.rm_extend.rm_so, length, eflags);
 	match = pcre_exec(regexpPtr->pcre, regexpPtr->study,
-		matchstr, length, offset, pcreeflags,
-		(int *) regexpPtr->matches, nm);
-
-	/*
-	 * Store last offset to support Tcl_RegExpGetInfo translation.
-	 */
-	regexpPtr->details.rm_extend.rm_so = offset;
+		matchstr, length, offset, eflags,
+		(int *) regexpPtr->offsets, nm);
 
 	/*
 	 * Check for errors.
@@ -518,6 +521,18 @@ Tcl_RegExpExecObj(
 	    }
 	    return -1;
 	}
+
+	/*
+	 * Adjust match indices relative offset where matching began.
+	 */
+	if (offset) {
+	    int i, *offsets = (int *) regexpPtr->offsets;
+	    for (i = 0; i <= match*2; i++) {
+	    	//printf("**** correct: %d) ++ %d\n", i, offset);
+		offsets[i] -= offset;
+	    }
+	}
+
 	return 1;
 #else
 	if (interp != NULL) {
@@ -602,25 +617,15 @@ Tcl_RegExpGetInfo(
     infoPtr->nsubs = regexpPtr->re.re_nsub;
     if (regexpPtr->flags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
-	ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
-	int i, last, *matches = (int *) regexpPtr->matches;
-
-	/*
-	 * This works both to initialize and extend matches as necessary
-	 */
-	if (tsdPtr->matchelems <= infoPtr->nsubs) {
-	    tsdPtr->matchelems = infoPtr->nsubs + 1;
-	    tsdPtr->matches = (Tcl_RegExpIndices *)
-		ckrealloc((char *) tsdPtr->matches,
-			sizeof(Tcl_RegExpIndices) * tsdPtr->matchelems);
+	if ((int *)regexpPtr->matches != regexpPtr->offsets) {
+	    int i, *offsets = (int *) regexpPtr->offsets;
+	    for (i = 0; i <= infoPtr->nsubs; i++) {
+		regexpPtr->matches[i].rm_so = offsets[i*2];
+		regexpPtr->matches[i].rm_eo = offsets[i*2+1];
+	    }
 	}
-	last = regexpPtr->details.rm_extend.rm_so; /* last offset */
-	for (i = 0; i <= infoPtr->nsubs; i++) {
-	    tsdPtr->matches[i].start = matches[i*2] - last;
-	    tsdPtr->matches[i].end = matches[i*2+1] - last;
-	}
-	infoPtr->matches = tsdPtr->matches;
-	infoPtr->extendStart = 0; /* XXX support? */
+	infoPtr->matches = (Tcl_RegExpIndices *) regexpPtr->matches;
+	infoPtr->extendStart = -1; /* XXX support? */
 #else
 	Tcl_Panic("Cannot get info for PCRE match");
 #endif
@@ -1107,8 +1112,15 @@ CompileRegexp(
 	rc = pcre_fullinfo(pcre, NULL, PCRE_INFO_CAPTURECOUNT, &nsubs);
 	if (rc == 0) {
 	    regexpPtr->re.re_nsub = nsubs;
-	    regexpPtr->matches = (regmatch_t *)
+	    regexpPtr->offsets = (int *)
 		ckalloc(sizeof(int) * (nsubs+1)*3);
+	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
+	    if (sizeof(*regexpPtr->offsets)*2 != sizeof(*regexpPtr->matches)) {
+		regexpPtr->matches = (regmatch_t *) ckalloc(
+		    sizeof(regmatch_t) * (nsubs+1));
+	    } else {
+		regexpPtr->matches = (regmatch_t *)regexpPtr->offsets;
+	    }
 	}
 #else
 	Tcl_AppendResult(interp,
@@ -1235,6 +1247,11 @@ FreeRegexp(
     if (regexpPtr->matches) {
 	ckfree((char *) regexpPtr->matches);
     }
+#ifdef HAVE_PCRE
+    if (regexpPtr->offsets && regexpPtr->offsets != (int *)regexpPtr->matches) {
+	ckfree((char *) regexpPtr->offsets);
+    }
+#endif
     ckfree((char *) regexpPtr);
 }
 
@@ -1270,11 +1287,6 @@ FinalizeRegexp(
 	ckfree(tsdPtr->patterns[i]);
 	tsdPtr->patterns[i] = NULL;
     }
-#ifdef HAVE_PCRE
-    if (tsdPtr->matches != NULL) {
-	ckfree((char *) tsdPtr->matches);
-    }
-#endif
     /*
      * We may find ourselves reinitialized if another finalization routine
      * invokes regexps.
@@ -1540,7 +1552,7 @@ TclRegexpPCRE(
     int offset)
 {
 #ifdef HAVE_PCRE
-    int i, match, eflags, stringLength, matchelems, *matches;
+    int i, match, eflags, stringLength, matchelems, *offsets;
     int offsetDiff = 0;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
@@ -1562,15 +1574,20 @@ TclRegexpPCRE(
 	 * Add flag if using offset (string is part of a larger string), so
 	 * that "^" won't match.
 	 */
+    	int bol = 0;
 
 	if (objPtr->typePtr != &tclByteArrayType) {
 	    /* XXX: probably needs length restriction */
 	    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
+	    bol = *(Tcl_UtfAtIndex(matchstr, offset-1)) == '\n';
+	} else {
+	    bol = matchstr[offset-1] == '\n';
 	}
-	eflags |= PCRE_NOTBOL;
+	if (!bol)
+	    eflags |= PCRE_NOTBOL;
 	
 	/* avoid bad offset error (PCRE_ERROR_BADOFFSET) */
-	if (offset >= stringLength) {
+	if (offset > stringLength) {
 	    /* safe offset to correct indices if empty matched */
 	    offsetDiff = offset;
 	    /* offset (and string) to NTS char */
@@ -1590,11 +1607,11 @@ TclRegexpPCRE(
 
     re = regexpPtr->pcre;
     study = regexpPtr->study;
-    matches = (int *) regexpPtr->matches;
+    offsets = (int *) regexpPtr->offsets;
     matchelems = (int) (regexpPtr->re.re_nsub + 1) * 3;
     while (1) {
 	match = pcre_exec(re, study, matchstr, stringLength,
-		offset, eflags, matches, matchelems);
+		offset, eflags, offsets, matchelems);
 
 	if (match < -1) {
 	    /* offset is out of range (bad utf, wrong length etc) */
@@ -1658,8 +1675,8 @@ TclRegexpPCRE(
 
 	    if (i < match) {
 	    	if (!offsetDiff) {
-		    start = matches[i*2];
-		    end = matches[i*2 + 1];
+		    start = offsets[i*2];
+		    end = offsets[i*2 + 1];
 	    	} else {
 		    /* if out of range we've always empty match [offs, offs-1] */
 		    end = start = offsetDiff;
@@ -1712,10 +1729,10 @@ TclRegexpPCRE(
 	 * when we match the NULL string at the end of the input string, we
 	 * will loop indefinately (because the length of the match is 0, so
 	 * offset never changes).
-	 * matches[1] is the match end point of the full RE match.
+	 * offsets[1] is the match end point of the full RE match.
 	 */
 
-	offset = (matches[1] > matches[0]) ? matches[1] : matches[0] + 1;
+	offset = (offsets[1] > offsets[0]) ? offsets[1] : offsets[0] + 1;
 	all++;
 	eflags |= PCRE_NOTBOL;
 	if (offset >= stringLength) {

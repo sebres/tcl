@@ -35,6 +35,7 @@ typedef struct TclRegexp {
 #ifdef HAVE_PCRE
     pcre *pcre;			/* PCRE compile re */
     pcre_extra *study;		/* study of PCRE */
+    int *offsets;		/* Array of offsets (indices to handle within PCRE) */
 #endif
     CONST char *string;		/* Last string passed to Tcl_RegExpExec. */
     Tcl_Obj *objPtr;		/* Last object passed to Tcl_RegExpExecObj. */

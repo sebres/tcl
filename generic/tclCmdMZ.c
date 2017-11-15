@@ -298,7 +298,7 @@ Tcl_RegsubObjCmd(
     int objc,			/* Number of arguments. */
     Tcl_Obj *const objv[])	/* Argument objects. */
 {
-    int idx, result, cflags, all, wlen, wsublen, numMatches, offset;
+    int idx, result, cflags, all, wlen, wsublen, numMatches, offset, rest = 0;
     int start, end, subStart, subEnd, match, re_type;
     Tcl_RegExp regExpr;
     Tcl_RegExpInfo info;
@@ -433,7 +433,7 @@ Tcl_RegsubObjCmd(
 	}
     }
 
-    if (all && (offset == 0) && !(cflags & TCL_REG_PCRE)
+    if (0 && all && (offset == 0) && !(cflags & TCL_REG_PCRE)
 	    && (strpbrk(TclGetString(objv[2]), "&\\") == NULL)
 	    && (strpbrk(TclGetString(objv[0]), "*+?{}()[].\\|^$") == NULL)) {
 	/*
@@ -556,10 +556,12 @@ Tcl_RegsubObjCmd(
 	     * that "^" won't match.
 	     */
 
+	    //printf("**c* exec %d) off: %d, flg: %X\n", numMatches, offset, ((offset > 0 &&(wstring[offset-1] != '\n')) ? TCL_REG_NOTBOL : 0));
 	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
 		    10 /* matches */, ((offset > 0 &&
 		    (wstring[offset-1] != (Tcl_UniChar)'\n'))
 		    ? TCL_REG_NOTBOL : 0));
+	    //printf("**c* matc %d) ==== %d\n", numMatches, match);
 
 	    /*if (reflags & TCL_REG_PCRE) {}*/
 	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
@@ -592,7 +594,7 @@ Tcl_RegsubObjCmd(
 	    Tcl_RegExpGetInfo(regExpr, &info);
 	    start = info.matches[0].start;
 	    end = info.matches[0].end;
-	    //printf("********** append %d, %d\n", start, end);
+	    //printf("********** append [%d, %d] by s/e [%d, %d]\n", offset, start, start, end);
 	    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, start);
 
 	    /*
@@ -678,6 +680,7 @@ Tcl_RegsubObjCmd(
 		break;
 	    }
 	}
+	rest = offset;
 
     } else {
 
@@ -709,37 +712,47 @@ Tcl_RegsubObjCmd(
 	 */
 
 	numMatches = 0;
-	for ( ; offset <= wlen; ) {
+	for ( rest = 0; offset <= wlen; ) {
 
 	    /*
 	     * The flags argument is set if string is part of a larger string, so
 	     * that "^" won't match.
 	     */
 
+	    //printf("**p* exec %d) rest: %d, off: %d, flg: %X\n", numMatches, rest, offset, ((offset > 0 && (cstring[offset-1] != '\n')) ? TCL_REG_NOTBOL : 0));
 	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
 		    10 /* matches */, ((offset > 0 &&
 		    (cstring[offset-1] != '\n'))
 		    ? TCL_REG_NOTBOL : 0));
+	    //printf("**p* matc %d) ==== %d\n", numMatches, match);
 
-	    /*if (reflags & TCL_REG_PCRE) {}*/
 	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
 	    if (match < 0) {
 		result = TCL_ERROR;
 		goto done;
 	    }
 	    if (match == 0) {
-		break;
+		/* 
+		 * In order to process last line correctly by multiline processing e. g. `(?m)^`
+		 * try to find match after string.
+		 */
+		if (!all) {
+		    break;
+		}
+		all = 0;	/* stop search at next interation */
+		offset = wlen;	/* repeat search after end */
+		continue;
 	    }
 	    if (numMatches == 0) {
 		resultPtr = Tcl_NewStringObj(cstring, 0);
 		Tcl_IncrRefCount(resultPtr);
-		if (offset > 0) {
+		if (rest > 0) {
 		    /*
 		     * Copy the initial portion of the string in if an offset was
 		     * specified.
 		     */
 
-		    Tcl_AppendToObj(resultPtr, cstring, offset);
+		    Tcl_AppendToObj(resultPtr, cstring, rest);
 		}
 	    }
 	    numMatches++;
@@ -748,12 +761,19 @@ Tcl_RegsubObjCmd(
 	     * Copy the portion of the source string before the match to the
 	     * result variable.
 	     */
+	    if (rest < offset) {
+		//printf("********** append [%d, %d] by r/o [%d, %d]\n", rest, offset - rest, rest, offset);
+		Tcl_AppendToObj(resultPtr, cstring + rest, offset - rest);
+		rest = offset;
+	    }
 
 	    Tcl_RegExpGetInfo(regExpr, &info);
 	    start = info.matches[0].start;
 	    end = info.matches[0].end;
-	    //printf("********** append %d, %d\n", start, end);
-	    Tcl_AppendToObj(resultPtr, cstring + offset, start);
+	    if (start) {
+		//printf("********** append [%d, %d] by s/e [%d, %d]\n", offset, start, start, end);
+		Tcl_AppendToObj(resultPtr, cstring + offset, start);
+	    }
 
 	    /*
 	     * Append the subSpec argument to the variable, making appropriate
@@ -834,6 +854,7 @@ Tcl_RegsubObjCmd(
 		    offset++;
 		}
 	    }
+	    rest = offset;
 	    if (!all) {
 		break;
 	    }
@@ -857,11 +878,11 @@ Tcl_RegsubObjCmd(
 
 	resultPtr = objv[1];
 	Tcl_IncrRefCount(resultPtr);
-    } else if (offset < wlen) {
+    } else if (rest < wlen) {
     	if (!(cflags & TCL_REG_PCRE)) {
-	    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, wlen - offset);
+	    Tcl_AppendUnicodeToObj(resultPtr, wstring + rest, wlen - rest);
 	} else {
-	    Tcl_AppendToObj(resultPtr, (char *)wstring + offset, wlen - offset);
+	    Tcl_AppendToObj(resultPtr, (char *)wstring + rest, wlen - rest);
 	}
     }
     if (objc == 4) {

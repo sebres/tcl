@@ -18,6 +18,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 
 testConstraint exec [llength [info commands exec]]
 testConstraint not_pcre [expr {[interp regexp {}] ne "pcre"}]
+testConstraint knownBug [expr {[testConstraint knownBug] || [interp regexp {}] eq "pcre"}]
 
 catch {unset foo}
 test regexp-1.1 {basic regexp operation} {

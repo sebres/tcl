@@ -425,13 +425,13 @@ cdebug	= -O2 $(OPTIMIZATIONS)
 cdebug	=
 !endif
 !if $(SYMBOLS)
-cdebug	= $(cdebug) -Zi
+cdebug	= $(cdebug) -Zi $(OPTIMIZATIONS)
 !endif
 !else if "$(MACHINE)" == "IA64" || "$(MACHINE)" == "AMD64"
 ### Warnings are too many, can't support warnings into errors.
-cdebug	= -Zi -Od $(DEBUGFLAGS)
+cdebug	= -Zi -Od $(DEBUGFLAGS) $(OPTIMIZATIONS)
 !else
-cdebug	= -Zi -WX $(DEBUGFLAGS)
+cdebug	= -Zi $(DEBUGFLAGS) $(OPTIMIZATIONS)
 !endif
 
 ### Declarations common to all compiler options
