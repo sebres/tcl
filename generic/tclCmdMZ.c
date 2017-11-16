@@ -433,7 +433,7 @@ Tcl_RegsubObjCmd(
 	}
     }
 
-    if (all && (offset == 0) && !(cflags & TCL_REG_PCRE)
+    if (all && (offset == 0)
 	    && (strpbrk(TclGetString(objv[2]), "&\\") == NULL)
 	    && (strpbrk(TclGetString(objv[0]), "*+?{}()[].\\|^$") == NULL)) {
 	/*
@@ -501,6 +501,7 @@ Tcl_RegsubObjCmd(
 	}
 	objPtr = NULL;
 	subPtr = NULL;
+	cflags &= ~TCL_REG_PCRE;
 	goto regsubDone;
     }
 
