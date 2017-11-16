@@ -496,7 +496,6 @@ Tcl_RegExpExecObj(
 	    length = 0;
 	}
 
-	//printf("**** pcre_exec: %d(%d)..%d, flg:%X\n", offset, regexpPtr->details.rm_extend.rm_so, length, eflags);
 	match = pcre_exec(regexpPtr->pcre, regexpPtr->study,
 		matchstr, length, offset, eflags,
 		(int *) regexpPtr->offsets, nm);
@@ -528,7 +527,6 @@ Tcl_RegExpExecObj(
 	if (offset) {
 	    int i, *offsets = (int *) regexpPtr->offsets;
 	    for (i = 0; i <= match*2; i++) {
-	    	//printf("**** correct: %d) ++ %d\n", i, offset);
 		offsets[i] -= offset;
 	    }
 	}
@@ -1552,8 +1550,8 @@ TclRegexpPCRE(
     int offset)
 {
 #ifdef HAVE_PCRE
-    int i, match, eflags, stringLength, matchelems, *offsets;
-    int offsetDiff = 0;
+    int i, match, eflags, pcrecflags = 0, stringLength, matchelems, *offsets,
+	offsetDiff, numMatches = 0;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
     pcre *re;
@@ -1561,38 +1559,17 @@ TclRegexpPCRE(
     TclRegexp *regexpPtr = (TclRegexp *) regExpr;
 
     objPtr = objv[1];
+    /*
+     * Get match string and translate offset into correct placement for utf-8 chars.
+     */
     if (objPtr->typePtr == &tclByteArrayType) {
 	matchstr = Tcl_GetByteArrayFromObj(objPtr, &stringLength);
-    } else {
-	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
-    }
-
-    eflags = PCRE_NO_UTF8_CHECK;
-    if (offset > 0) {
-	/*
-	 * Translate offset into correct placement for utf-8 chars.
-	 * Add flag if using offset (string is part of a larger string), so
-	 * that "^" won't match.
-	 */
-    	int bol = 0;
-
-	if (objPtr->typePtr != &tclByteArrayType) {
+	if (offset && offset < stringLength) {
 	    /* XXX: probably needs length restriction */
 	    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
-	    bol = *(Tcl_UtfAtIndex(matchstr, offset-1)) == '\n';
-	} else {
-	    bol = matchstr[offset-1] == '\n';
 	}
-	if (!bol)
-	    eflags |= PCRE_NOTBOL;
-	
-	/* avoid bad offset error (PCRE_ERROR_BADOFFSET) */
-	if (offset > stringLength) {
-	    /* safe offset to correct indices if empty matched */
-	    offsetDiff = offset;
-	    /* offset (and string) to NTS char */
-	    offset = stringLength++;
-	}
+    } else {
+	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
     }
 
     objc -= 2;
@@ -1609,7 +1586,53 @@ TclRegexpPCRE(
     study = regexpPtr->study;
     offsets = (int *) regexpPtr->offsets;
     matchelems = (int) (regexpPtr->re.re_nsub + 1) * 3;
+    eflags = PCRE_NO_UTF8_CHECK;
+    if (all) {
+	pcre_fullinfo(re, NULL, PCRE_INFO_OPTIONS, &pcrecflags);
+    }
     while (1) {
+
+	offsetDiff = 0;
+	if (offset > 0) {
+
+	   /* 
+	    * PCRE has currently a "bug" by multiline with offset after "\n":
+	    * ^ - meant assert start of string (or line, in multiline mode),
+	    * but it will be not found by offset after "\n" regardless multiline mode.
+	    * Thus just let do a small adustment (hacking with shift of offset or length to NTS).
+	    * Note we should do it always in order to regard enable multiline by exec using `(?m)`.
+	    * If offset > stringLength, it avoids bad offset error (PCRE_ERROR_BADOFFSET).
+	    */
+	    if (offset >= stringLength) {
+	    	int bol;
+	    	/* avoid match {^$} without multiline, if we are out of range */
+		if (!numMatches && offset > stringLength) {
+		    eflags |= PCRE_NOTBOL;
+		}
+		/* safe offset to correct indices if empty match found */
+		offsetDiff = offset;
+		offset = stringLength;	/* offset after last char */
+		if (all && numMatches && offset) {
+		    if (objPtr->typePtr != &tclByteArrayType) {
+			bol = *(Tcl_UtfAtIndex(matchstr, offset-1)) == '\n';
+		    } else {
+			bol = matchstr[offset-1] == '\n';
+		    }
+		    /* fast fallback if we are not begin of new-line (cannot match anyway) */
+		    if (!bol) {
+			break;
+		    } else {
+			/* hacking PCRE to accept this "extra" new-line (after newline empty match). */
+			matchstr = "";
+			offset = 0;
+			stringLength = 0;
+			eflags |= PCRE_ANCHORED;
+		    }
+		}
+		all = 0;			/* don't repeat */
+	    }
+	}
+
 	match = pcre_exec(re, study, matchstr, stringLength,
 		offset, eflags, offsets, matchelems);
 
@@ -1632,24 +1655,29 @@ TclRegexpPCRE(
 	}
 
 	if (match == PCRE_ERROR_NOMATCH) {
-	    /*
-	     * We want to set the value of the intepreter result only when
-	     * this is the first time through the loop.
-	     */
-
-	    if (all <= 1) {
-		/*
-		 * If inlining, the interpreter's object result remains an
-		 * empty list, otherwise set it to an integer object w/ value
-		 * 0.
-		 */
-
-		if (!doinline) {
-		    Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
-		}
-		return TCL_OK;
+	   /* 
+	    * In order to process last line correctly by multiline processing e. g. `(?m)^`
+	    * try to find match after string (in case of findall and already matched something).
+	    * Option pcrecflags & PCRE_ANCHORED is not set in multiline mode (resp. `(?m)`),
+	    * in this case no match means - we will find nothing at all, so don't repeat.
+	    */
+	    if (!all || !numMatches || !stringLength || (pcrecflags & PCRE_ANCHORED)) {
+		break;
 	    }
-	    break;
+	    /* If we tried unshifted search - repeat from next offset */
+	    if (eflags & PCRE_NOTEMPTY_ATSTART) {
+		eflags &= ~(PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED);
+		offset++;
+		if (objPtr->typePtr != &tclByteArrayType) {
+		    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
+		}
+		continue;
+	    }
+	    /* offset to end of string */
+	    offset = stringLength;
+
+	    /* repeat once search at end */
+	    continue;
 	}
 
 	/*
@@ -1665,7 +1693,7 @@ TclRegexpPCRE(
 	     */
 
 	    objc = regexpPtr->re.re_nsub + 1;
-	    if (all <= 1) {
+	    if (!resultPtr) {
 		resultPtr = Tcl_NewObj();
 	    }
 	}
@@ -1717,26 +1745,24 @@ TclRegexpPCRE(
 	    }
 	}
 
-	if (all == 0) {
+	numMatches++;
+	if (!all) {
 	    break;
 	}
 
 	/*
 	 * Adjust the offset to the character just after the last one in the
-	 * matchVar and increment all to count how many times we are making a
-	 * match. We always increment the offset by at least one to prevent
-	 * endless looping (as in the case: regexp -all {a*} a). Otherwise,
-	 * when we match the NULL string at the end of the input string, we
-	 * will loop indefinately (because the length of the match is 0, so
-	 * offset never changes).
-	 * offsets[1] is the match end point of the full RE match.
+	 * matchVar.
+	 * In order to correct find all empty matches (X..X-1), we'll use
+	 * PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED pair for start next try from the
+	 * same offset (if not found again, break the cycle above).
 	 */
 
-	offset = (offsets[1] > offsets[0]) ? offsets[1] : offsets[0] + 1;
-	all++;
-	eflags |= PCRE_NOTBOL;
-	if (offset >= stringLength) {
-	    break;
+	if (offsets[1] > offsets[0]) {
+	    offset = offsets[1];
+	} else {
+	    offset = offsets[0];
+	    eflags |= (PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED);
 	}
     }
 
@@ -1747,9 +1773,13 @@ TclRegexpPCRE(
      */
 
     if (doinline) {
-	Tcl_SetObjResult(interp, resultPtr);
+    	if (resultPtr) {
+	    Tcl_SetObjResult(interp, resultPtr);
+	} else {
+	    Tcl_ResetResult(interp);
+	}
     } else {
-	Tcl_SetObjResult(interp, Tcl_NewIntObj(all ? all-1 : 1));
+	Tcl_SetObjResult(interp, Tcl_NewIntObj(numMatches));
     }
     return TCL_OK;
 #else /* !HAVE_PCRE */

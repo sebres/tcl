@@ -21,7 +21,7 @@ namespace inscope ::tcltest {rename cleanupTests _cleanupTests; proc cleanupTest
 rename test __test
 proc test {args} {}
 
-catch {
+set err [catch {
 
   # test all available regexp engines (switch default to another one):
   set org_reeng [interp regexp {}]
@@ -75,7 +75,7 @@ test regexp-0.1 {test of interim "switch" of engine} -body {
 
   }; #end of engine cycle
 
-} errMsg opt
+} errMsg opt]
 
 # restore
 interp regexp {} $org_reeng
@@ -84,4 +84,6 @@ namespace inscope ::tcltest {rename cleanupTests {}; rename _cleanupTests cleanu
 
 # cleanup
 ::tcltest::cleanupTests
-return {*}$opt -level 1 $errMsg
+if {$err} {
+  return {*}$opt -level 1 $errMsg
+}

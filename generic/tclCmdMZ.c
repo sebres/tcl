@@ -433,7 +433,7 @@ Tcl_RegsubObjCmd(
 	}
     }
 
-    if (0 && all && (offset == 0) && !(cflags & TCL_REG_PCRE)
+    if (all && (offset == 0) && !(cflags & TCL_REG_PCRE)
 	    && (strpbrk(TclGetString(objv[2]), "&\\") == NULL)
 	    && (strpbrk(TclGetString(objv[0]), "*+?{}()[].\\|^$") == NULL)) {
 	/*
@@ -556,15 +556,11 @@ Tcl_RegsubObjCmd(
 	     * that "^" won't match.
 	     */
 
-	    //printf("**c* exec %d) off: %d, flg: %X\n", numMatches, offset, ((offset > 0 &&(wstring[offset-1] != '\n')) ? TCL_REG_NOTBOL : 0));
 	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
 		    10 /* matches */, ((offset > 0 &&
 		    (wstring[offset-1] != (Tcl_UniChar)'\n'))
 		    ? TCL_REG_NOTBOL : 0));
-	    //printf("**c* matc %d) ==== %d\n", numMatches, match);
 
-	    /*if (reflags & TCL_REG_PCRE) {}*/
-	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
 	    if (match < 0) {
 		result = TCL_ERROR;
 		goto done;
@@ -594,7 +590,6 @@ Tcl_RegsubObjCmd(
 	    Tcl_RegExpGetInfo(regExpr, &info);
 	    start = info.matches[0].start;
 	    end = info.matches[0].end;
-	    //printf("********** append [%d, %d] by s/e [%d, %d]\n", offset, start, start, end);
 	    Tcl_AppendUnicodeToObj(resultPtr, wstring + offset, start);
 
 	    /*
@@ -719,14 +714,11 @@ Tcl_RegsubObjCmd(
 	     * that "^" won't match.
 	     */
 
-	    //printf("**p* exec %d) rest: %d, off: %d, flg: %X\n", numMatches, rest, offset, ((offset > 0 && (cstring[offset-1] != '\n')) ? TCL_REG_NOTBOL : 0));
 	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
 		    10 /* matches */, ((offset > 0 &&
 		    (cstring[offset-1] != '\n'))
 		    ? TCL_REG_NOTBOL : 0));
-	    //printf("**p* matc %d) ==== %d\n", numMatches, match);
 
-	    //printf("********** %p (%s) match %d = %d, %d\n", objPtr->typePtr, objPtr->typePtr ? objPtr->typePtr->name : "", numMatches, match, offset);
 	    if (match < 0) {
 		result = TCL_ERROR;
 		goto done;
@@ -762,7 +754,6 @@ Tcl_RegsubObjCmd(
 	     * result variable.
 	     */
 	    if (rest < offset) {
-		//printf("********** append [%d, %d] by r/o [%d, %d]\n", rest, offset - rest, rest, offset);
 		Tcl_AppendToObj(resultPtr, cstring + rest, offset - rest);
 		rest = offset;
 	    }
@@ -771,7 +762,6 @@ Tcl_RegsubObjCmd(
 	    start = info.matches[0].start;
 	    end = info.matches[0].end;
 	    if (start) {
-		//printf("********** append [%d, %d] by s/e [%d, %d]\n", offset, start, start, end);
 		Tcl_AppendToObj(resultPtr, cstring + offset, start);
 	    }
 

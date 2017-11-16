@@ -3124,7 +3124,7 @@ TclCompileRegexpCmd(
 	 * Note that TCL_REG_PCRE/TCL_REG_EXPLTYPE will be mapped to TCL_REG_ADVANCED.
 	 * Don't use TCL_REG_NOSUB as we may have backrefs.
 	 */
-	cflags |= TCL_REG_COMPILE_SHIFT(cflags); /* int to byte */
+	cflags = TCL_REG_COMPILE_SHIFT(cflags); /* int to byte */
 	TclEmitInstInt1(INST_REGEXP, cflags, envPtr);
     }
 
