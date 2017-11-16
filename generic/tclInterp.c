@@ -953,10 +953,10 @@ Tcl_InterpObjCmd(
 	int re_type;
 	Interp *slaveInterp;
 	static CONST char *re_type_opts[] = {
-	    "classic",	"pcre",	NULL
+	    "classic",		"dfa",		"pcre",	NULL
 	};
 	enum re_type_opts {
-	    RETYPE_CLASSIC,	RETYPE_PCRE,
+	    RETYPE_CLASSIC,	RETYPE_DFA,	RETYPE_PCRE
 	};
 	if (objc != 3 && objc != 4) {
 	    Tcl_WrongNumArgs(interp, 2, objv, "path ?type?");
@@ -971,16 +971,27 @@ Tcl_InterpObjCmd(
 			    0, &re_type) != TCL_OK) {
 		return TCL_ERROR;
 	    }
-	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-		slaveInterp->flags |= INTERP_PCRE;
-	    } else {
-		slaveInterp->flags &= ~(INTERP_PCRE);
+	    switch ((enum re_type_opts) re_type) {
+	      case RETYPE_PCRE:
+		slaveInterp->flags = 
+		    (slaveInterp->flags & ~INTERP_DFA) | INTERP_PCRE;
+	      break;
+	      case RETYPE_DFA:
+		slaveInterp->flags |= INTERP_PCRE|INTERP_DFA;
+	      break;
+	      default:
+		slaveInterp->flags &= ~(INTERP_PCRE|INTERP_DFA);
+	      break;
 	    }
 	    Tcl_SetObjResult(interp, objv[3]);
 	    return TCL_OK;
 	}
 	if (slaveInterp->flags & INTERP_PCRE) {
-	    Tcl_SetObjResult(interp, Tcl_NewStringObj("pcre", -1));
+	    if (!(slaveInterp->flags & INTERP_DFA)) {
+		Tcl_SetObjResult(interp, Tcl_NewStringObj("pcre", -1));
+	    } else {
+		Tcl_SetObjResult(interp, Tcl_NewStringObj("dfa", -1));
+	    }
 	} else {
 	    Tcl_SetObjResult(interp, Tcl_NewStringObj("classic", -1));
 	}

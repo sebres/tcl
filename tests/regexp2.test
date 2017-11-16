@@ -26,7 +26,7 @@ set err [catch {
   # test all available regexp engines (switch default to another one):
   set org_reeng [interp regexp {}]
 
-  foreach reeng {classic pcre} {
+  foreach reeng {classic pcre dfa} {
 
     proc _test_reeng_available {} {
       variable reeng

@@ -563,11 +563,13 @@ typedef void (Tcl_ThreadCreateProc) _ANSI_ARGS_((ClientData clientData));
 					 * default interp engine, mean it specified as parameter) */
 #define	TCL_REG_PCRE	    0x20000000	/* Make sure it doesn't conflict with
 					 * existing TCL_REG_* or PCRE_* bits */
+#define	TCL_REG_PCDFA	    0x40000000	/* DFA variant of PCRE engine */
 
-/* Following two macros used to supply TCL_REG_PCRE and TCL_REG_EXPLTYPE
-/* to INST_REGEXP over one byte op (instead of TCL_REG_ADVANCED, that is always set) */
-#define	TCL_REG_COMPILE_SHIFT(v) ((v&~0x30000000)|(v>>28)&0x3)
-#define	TCL_REG_COMPILE_UNSHIFT(v) ((v&~0x03)|((v&0x03)<<28)|TCL_REG_ADVANCED)
+/* Following two macros used to supply TCL_REG_PCRE, TCL_REG_PCDFA and TCL_REG_EXPLTYPE
+/* to INST_REGEXP over one byte op (instead of first 3 bits, that currently never compiled 
+ * e. g. TCL_REG_ADVANCED, that is always set in compiled variant) */
+#define	TCL_REG_COMPILE_SHIFT(v) ((v&~0x70000000)|(v>>28)&0x07)
+#define	TCL_REG_COMPILE_UNSHIFT(v) ((v&~0x07)|((v&0x07)<<28)|TCL_REG_ADVANCED)
 
 /*
  * Flags values passed to Tcl_RegExpExecObj.

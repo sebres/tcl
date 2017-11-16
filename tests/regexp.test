@@ -17,10 +17,10 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 }
 
 testConstraint exec [llength [info commands exec]]
-testConstraint pcre [expr {[interp regexp {}] eq "pcre"}]
-testConstraint classic [expr {[interp regexp {}] ne "pcre"}]
+testConstraint pcre [expr {[interp regexp {}] ne "classic"}]
+testConstraint classic [expr {[interp regexp {}] eq "classic"}]
 # all known bugs are fixed in PCRE engine, thus disable constraint if PCRE used:
-testConstraint knownBug [expr {[testConstraint knownBug] || [interp regexp {}] eq "pcre"}]
+testConstraint knownBug [expr {[testConstraint knownBug] || [interp regexp {}] ne "classic"}]
 
 catch {unset foo}
 test regexp-1.1 {basic regexp operation} {

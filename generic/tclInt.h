@@ -2011,7 +2011,8 @@ typedef struct Interp {
  *			of the wrong-num-args string in Tcl_WrongNumArgs.
  *			Makes it append instead of replacing and uses
  *			different intermediate text.
- * INTERP_PCRE		Non-zero means use PCRE engine by default for REs
+ * INTERP_PCRE		Non-zero means use PCRE engine by default for REs.
+ * INTERP_DFA		Non-zero means use dfa mode of PCRE engine by default.
  *
  * WARNING: For the sake of some extensions that have made use of former
  * internal values, do not re-use the flag values 2 (formerly ERR_IN_PROGRESS)
@@ -2024,10 +2025,11 @@ typedef struct Interp {
 #define DONT_COMPILE_CMDS_INLINE	  0x20
 #define RAND_SEED_INITIALIZED		  0x40
 #define SAFE_INTERP			  0x80
-#define INTERP_PCRE			 0x100
 #define INTERP_TRACE_IN_PROGRESS	 0x200
 #define INTERP_ALTERNATE_WRONG_ARGS	 0x400
 #define ERR_LEGACY_COPY			 0x800
+#define INTERP_PCRE			0x1000
+#define INTERP_DFA			0x2000
 
 /*
  * Maximum number of levels of nesting permitted in Tcl commands (used to

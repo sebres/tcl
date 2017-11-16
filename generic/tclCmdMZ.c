@@ -102,10 +102,10 @@ Tcl_RegexpObjCmd(
 	REGEXP_NOCASE,REGEXP_START,	REGEXP_TYPE,	REGEXP_LAST
     };
     static CONST char *re_type_opts[] = {
-	"classic",	"pcre",	NULL
+	"classic",	"dfa",		"pcre",	NULL
     };
     enum re_type_opts {
-	RETYPE_CLASSIC,	RETYPE_PCRE,
+	RETYPE_CLASSIC,	RETYPE_DFA,	RETYPE_PCRE
     };
 
     indices = 0;
@@ -180,10 +180,16 @@ Tcl_RegexpObjCmd(
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
 	    }
-	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-		cflags |= TCL_REG_PCRE | TCL_REG_EXPLTYPE;
-	    } else {
-		cflags = (cflags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
+	    switch ((enum re_type_opts) re_type) {
+	      case RETYPE_PCRE:
+		cflags = (cflags & ~TCL_REG_PCDFA)|TCL_REG_PCRE | TCL_REG_EXPLTYPE;
+	      break;
+	      case RETYPE_DFA:
+		cflags |= TCL_REG_PCRE|TCL_REG_PCDFA | TCL_REG_EXPLTYPE;
+	      break;
+	      default:
+		cflags = (cflags & ~(TCL_REG_PCRE|TCL_REG_PCDFA)) | TCL_REG_EXPLTYPE;
+	      break;
 	    }
 	    break;
 	case REGEXP_LAST:
@@ -316,10 +322,10 @@ Tcl_RegsubObjCmd(
 	REGSUB_TYPE,	REGSUB_LAST
     };
     static CONST char *re_type_opts[] = {
-	"classic",	"pcre",	NULL
+	"classic",	"dfa",		"pcre",	NULL
     };
     enum re_type_opts {
-	RETYPE_CLASSIC,	RETYPE_PCRE,
+	RETYPE_CLASSIC,	RETYPE_DFA,	RETYPE_PCRE
     };
 
     re_type = 0;    cflags = TCL_REG_ADVANCED;
@@ -381,10 +387,16 @@ Tcl_RegsubObjCmd(
 			    0, &re_type) != TCL_OK) {
 		goto optionError;
 	    }
-	    if ((enum re_type_opts) re_type == RETYPE_PCRE) {
-		cflags |= TCL_REG_PCRE | TCL_REG_EXPLTYPE;
-	    } else {
-		cflags = (cflags & ~TCL_REG_PCRE) | TCL_REG_EXPLTYPE;
+	    switch ((enum re_type_opts) re_type) {
+	      case RETYPE_PCRE:
+		cflags = (cflags & ~TCL_REG_PCDFA)|TCL_REG_PCRE | TCL_REG_EXPLTYPE;
+	      break;
+	      case RETYPE_DFA:
+		cflags |= TCL_REG_PCRE|TCL_REG_PCDFA | TCL_REG_EXPLTYPE;
+	      break;
+	      default:
+		cflags = (cflags & ~(TCL_REG_PCRE|TCL_REG_PCDFA)) | TCL_REG_EXPLTYPE;
+	      break;
 	    }
 	    break;
 	case REGSUB_LAST:

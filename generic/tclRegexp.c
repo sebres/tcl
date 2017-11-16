@@ -496,9 +496,17 @@ Tcl_RegExpExecObj(
 	    length = 0;
 	}
 
-	match = pcre_exec(regexpPtr->pcre, regexpPtr->study,
+	if (!(regexpPtr->flags & TCL_REG_PCDFA)) {
+	    match = pcre_exec(regexpPtr->pcre, regexpPtr->study,
 		matchstr, length, offset, eflags,
 		(int *) regexpPtr->offsets, nm);
+	} else {
+	    //TODO:
+	    int wrkspace[60];
+	    match = pcre_dfa_exec(regexpPtr->pcre, regexpPtr->study,
+		matchstr, length, offset, eflags,
+		(int *) regexpPtr->offsets, nm, wrkspace, 60);
+	}
 
 	/*
 	 * Check for errors.
@@ -643,9 +651,17 @@ TclAdjustRegExpFlags(
 ) {
     /* if type is not explicit specified */
     if (!(flags & TCL_REG_EXPLTYPE)) {
+    	int msk;
 	/* own re-type from interp */
-	if ((interp != NULL) && (((Interp *)interp)->flags & INTERP_PCRE)) {
+	if ( (interp != NULL)
+	  && (msk = (((Interp *)interp)->flags & (INTERP_PCRE|INTERP_DFA)))
+	) {
 	    flags |= TCL_REG_PCRE;
+	    if (msk & INTERP_DFA) {
+		flags |= TCL_REG_PCDFA;
+	    } else {
+	    	flags &= ~TCL_REG_PCDFA;
+	    }
 	}
 	/* if does not work in PCRE - switch to classic (backwards compatibility) */
 	if ((flags & TCL_REG_PCRE)) {
@@ -1633,8 +1649,15 @@ TclRegexpPCRE(
 	    }
 	}
 
-	match = pcre_exec(re, study, matchstr, stringLength,
+	if (!(regexpPtr->flags & TCL_REG_PCDFA)) {
+	    match = pcre_exec(re, study, matchstr, stringLength,
 		offset, eflags, offsets, matchelems);
+	} else {
+	    //TODO:
+	    int wrkspace[60];
+	    match = pcre_dfa_exec(re, study, matchstr, stringLength,
+		offset, eflags, offsets, matchelems, wrkspace, 60);
+	}
 
 	if (match < -1) {
 	    /* offset is out of range (bad utf, wrong length etc) */
