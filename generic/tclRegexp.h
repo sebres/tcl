@@ -35,12 +35,12 @@ typedef struct TclRegexp {
 #ifdef HAVE_PCRE
     pcre *pcre;			/* PCRE compile re */
     pcre_extra *study;		/* study of PCRE */
-    int *offsets;		/* Array of offsets (indices to handle within PCRE) */
+    int **offsStorage;		/* Storage for array of offsets (indices to handle within PCRE) */
 #endif
     CONST char *string;		/* Last string passed to Tcl_RegExpExec. */
     Tcl_Obj *objPtr;		/* Last object passed to Tcl_RegExpExecObj. */
     Tcl_Obj *globObjPtr;	/* Glob pattern rep of RE or NULL if none. */
-    regmatch_t *matches;	/* Array of indices into the Tcl_UniChar
+    regmatch_t **matchStorage;	/* Storage for array of indices into the Tcl_UniChar
 				 * representation of the last string matched
 				 * with this regexp to indicate the location
 				 * of subexpressions. */

@@ -75,14 +75,25 @@ typedef struct ThreadSpecificData {
     struct TclRegexp *regexps[NUM_REGEXPS];
 				/* Compiled forms of above strings. Also
 				 * malloc-ed, or NULL if not in use yet. */
+#ifdef HAVE_PCRE
+    void  *offsStorage;		/* TSD global storeage for offsets/matches */
+    size_t offsStorSize;
+    void  *matchStorage;
+    size_t matchStorSize;
+#endif
 } ThreadSpecificData;
 
 static Tcl_ThreadDataKey dataKey;
+
+/* Static storage just points to NULL used as initial pointer for regexp storages */
+static void *emptyMatchStorage = NULL;
+
 
 /*
  * Declarations for functions used only in this file.
  */
 
+static void		AllocCaptStorage(TclRegexp *regexpPtr);
 static TclRegexp *	CompileRegexp(Tcl_Interp *interp, const char *pattern,
 			    int length, int flags);
 static void		DupRegexpInternalRep(Tcl_Obj *srcPtr,
@@ -95,6 +106,16 @@ static int		RegExpExecUniChar(Tcl_Interp *interp, Tcl_RegExp re,
 			    int nmatches, int flags);
 static int		SetRegexpFromAny(Tcl_Interp *interp, Tcl_Obj *objPtr);
 
+#ifdef HAVE_PCRE
+typedef struct {
+    int rm_so;		/* start of substring */
+    int rm_eo;		/* end of substring */
+} regoffs_t;
+
+#define	VectorCoountPCRE(regexpPtr) \
+		((int)(regexpPtr->re.re_nsub+1)*3)
+
+#endif
 /*
  * The regular expression Tcl object type. This serves as a cache of the
  * compiled form of the regular expression.
@@ -241,11 +262,12 @@ Tcl_RegExpRange(
 				 * in (sub-)range here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
+    regmatch_t *matches = *regexpPtr->matchStorage;
     const char *string;
 
     if ((size_t) index > regexpPtr->re.re_nsub) {
 	*startPtr = *endPtr = NULL;
-    } else if (regexpPtr->matches[index].rm_so < 0) {
+    } else if (matches[index].rm_so < 0) {
 	*startPtr = *endPtr = NULL;
     } else {
 	if (regexpPtr->objPtr) {
@@ -253,8 +275,8 @@ Tcl_RegExpRange(
 	} else {
 	    string = regexpPtr->string;
 	}
-	*startPtr = Tcl_UtfAtIndex(string, regexpPtr->matches[index].rm_so);
-	*endPtr = Tcl_UtfAtIndex(string, regexpPtr->matches[index].rm_eo);
+	*startPtr = Tcl_UtfAtIndex(string, matches[index].rm_so);
+	*endPtr = Tcl_UtfAtIndex(string, matches[index].rm_eo);
     }
 }
 
@@ -294,14 +316,20 @@ RegExpExecUniChar(
     int status;
     TclRegexp *regexpPtr = (TclRegexp *) re;
     size_t last = regexpPtr->re.re_nsub + 1;
+    regmatch_t *matches;
     size_t nm = last;
 
     if (nmatches >= 0 && (size_t) nmatches < nm) {
 	nm = (size_t) nmatches;
     }
 
+    if (!(matches = *regexpPtr->matchStorage)) {
+	AllocCaptStorage(regexpPtr);
+	matches = *regexpPtr->matchStorage;
+    }
+
     status = TclReExec(&regexpPtr->re, wString, (size_t) numChars,
-	    &regexpPtr->details, nm, regexpPtr->matches, flags);
+	    &regexpPtr->details, nm, matches, flags);
 
     /*
      * Check for errors.
@@ -354,6 +382,7 @@ TclRegExpRangeUniChar(
 				 * in (sub-)range here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
+    regmatch_t *matches = *regexpPtr->matchStorage;
 
     if ((regexpPtr->flags&REG_EXPECT) && index == -1) {
 	*startPtr = regexpPtr->details.rm_extend.rm_so;
@@ -362,8 +391,8 @@ TclRegExpRangeUniChar(
 	*startPtr = -1;
 	*endPtr = -1;
     } else {
-	*startPtr = regexpPtr->matches[index].rm_so;
-	*endPtr = regexpPtr->matches[index].rm_eo;
+	*startPtr = matches[index].rm_so;
+	*endPtr = matches[index].rm_eo;
     }
 }
 
@@ -466,8 +495,12 @@ Tcl_RegExpExecObj(
     if (reflags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
 	const char *matchstr;
-	int match, eflags, nm = (regexpPtr->re.re_nsub + 1) * 3;
+	int match, eflags, *offsets, nm = VectorCoountPCRE(regexpPtr);
 
+    	if (!(offsets = *regexpPtr->offsStorage)) {
+	    AllocCaptStorage(regexpPtr);
+	    offsets = *regexpPtr->offsStorage;
+	}
 	if (textObj->typePtr == &tclByteArrayType) {
 	    matchstr = Tcl_GetByteArrayFromObj(textObj, &length);
 	} else {
@@ -498,14 +531,21 @@ Tcl_RegExpExecObj(
 
 	if (!(regexpPtr->flags & TCL_REG_PCDFA)) {
 	    match = pcre_exec(regexpPtr->pcre, regexpPtr->study,
-		matchstr, length, offset, eflags,
-		(int *) regexpPtr->offsets, nm);
+		matchstr, length, offset, eflags, offsets, nm);
 	} else {
 	    //TODO:
 	    int wrkspace[60];
-	    match = pcre_dfa_exec(regexpPtr->pcre, regexpPtr->study,
-		matchstr, length, offset, eflags,
-		(int *) regexpPtr->offsets, nm, wrkspace, 60);
+	    do {
+		match = pcre_dfa_exec(regexpPtr->pcre, regexpPtr->study,
+		    matchstr, length, offset, eflags, offsets, nm, 
+		    wrkspace, 60);
+		if (match) break;
+		/* insufficient capture space - enlarge vectors buffer */
+		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
+		AllocCaptStorage(regexpPtr);
+		offsets = *regexpPtr->offsStorage;
+		nm = VectorCoountPCRE(regexpPtr);
+	    } while(1);
 	}
 
 	/*
@@ -533,7 +573,7 @@ Tcl_RegExpExecObj(
 	 * Adjust match indices relative offset where matching began.
 	 */
 	if (offset) {
-	    int i, *offsets = (int *) regexpPtr->offsets;
+	    int i;
 	    for (i = 0; i <= match*2; i++) {
 		offsets[i] -= offset;
 	    }
@@ -619,24 +659,26 @@ Tcl_RegExpGetInfo(
     Tcl_RegExpInfo *infoPtr)	/* Match information is stored here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) regexp;
+    regmatch_t *matches = *regexpPtr->matchStorage;
 
     infoPtr->nsubs = regexpPtr->re.re_nsub;
     if (regexpPtr->flags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
-	if ((int *)regexpPtr->matches != regexpPtr->offsets) {
-	    int i, *offsets = (int *) regexpPtr->offsets;
+    	int *offsets = *regexpPtr->offsStorage;
+	if ((int *)matches != offsets) {
+	    int i;
 	    for (i = 0; i <= infoPtr->nsubs; i++) {
-		regexpPtr->matches[i].rm_so = offsets[i*2];
-		regexpPtr->matches[i].rm_eo = offsets[i*2+1];
+		matches[i].rm_so = offsets[i*2];
+		matches[i].rm_eo = offsets[i*2+1];
 	    }
 	}
-	infoPtr->matches = (Tcl_RegExpIndices *) regexpPtr->matches;
+	infoPtr->matches = (Tcl_RegExpIndices *)matches;
 	infoPtr->extendStart = -1; /* XXX support? */
 #else
 	Tcl_Panic("Cannot get info for PCRE match");
 #endif
     } else {
-	infoPtr->matches = (Tcl_RegExpIndices *) regexpPtr->matches;
+	infoPtr->matches = (Tcl_RegExpIndices *)matches;
 	infoPtr->extendStart = regexpPtr->details.rm_extend.rm_so;
     }
 }
@@ -723,7 +765,9 @@ Tcl_GetRegExpFromObj(
 	flags = TclAdjustRegExpFlags(interp, objPtr, flags);
     }
 
-    /* explicit flag has no meaning further - remove it in order to compare */
+    /* 
+     * Explicit flag has no meaning further - remove it in order to compare.
+     */
     flags &= ~TCL_REG_EXPLTYPE;
 
     if ((objPtr->typePtr != &tclRegexpType) || (regexpPtr->flags != flags)) {
@@ -966,6 +1010,71 @@ SetRegexpFromAny(
 }
 
 /*
+ * AllocCaptStorage --
+ */
+static void
+AllocCaptStorage(TclRegexp *regexpPtr)
+{
+    ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
+    int veccnt, nsubs = regexpPtr->re.re_nsub;
+
+#ifdef HAVE_PCRE
+    /* 
+     * We use special handling to allocate storages for PCRE offsets/matches,
+     * because on some systems size we can use the same storage for both,
+     * if sizes of regoffs_t and regmatch_t are equal.
+     */
+    veccnt = VectorCoountPCRE(regexpPtr);
+    if (!tsdPtr->offsStorage || tsdPtr->offsStorSize < sizeof(int) * veccnt) {
+	tsdPtr->offsStorSize = sizeof(int) * veccnt;
+	/* if initial call (first call) */
+	if (!tsdPtr->offsStorage) {
+	    tsdPtr->offsStorage = ckalloc(tsdPtr->offsStorSize);
+	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
+	    if (sizeof(regoffs_t) != sizeof(regmatch_t)) {
+		tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
+		tsdPtr->matchStorage = ckalloc(tsdPtr->matchStorSize);
+	    } else {
+		tsdPtr->matchStorSize = tsdPtr->offsStorSize;
+		tsdPtr->matchStorage = tsdPtr->offsStorage;
+	    }
+	} else {
+	    /* enlarge storages */
+	    tsdPtr->offsStorage = ckrealloc(
+		(char*)tsdPtr->offsStorage, sizeof(int) * veccnt);
+	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
+	    if (sizeof(regoffs_t) != sizeof(regmatch_t)) {
+		tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
+		tsdPtr->matchStorage = ckrealloc(
+		    (char*)tsdPtr->matchStorage, tsdPtr->matchStorSize);
+	    } else {
+		tsdPtr->matchStorSize = tsdPtr->offsStorSize;
+		tsdPtr->matchStorage = tsdPtr->offsStorage;
+	    }
+	}
+    }
+
+    /* set current references in regexp for fast access without TSD lookup */
+    regexpPtr->offsStorage = &(int *)tsdPtr->offsStorage;
+#else
+    if (!tsdPtr->matchStorage || tsdPtr->matchStorSize < sizeof(regmatch_t) * (nsubs+1)) {
+	tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
+	/* if initial call (first call) */
+	if (!tsdPtr->matchStorage) {
+	    tsdPtr->matchStorage = ckalloc(tsdPtr->matchStorSize);
+	} else {
+	    /* enlarge storage */
+	    tsdPtr->matchStorage = ckrealloc(
+		(char*)tsdPtr->matchStorage, tsdPtr->matchStorSize);
+	}
+    }
+#endif
+
+    /* set current references in regexp for fast access without TSD lookup */
+    regexpPtr->matchStorage = &(regmatch_t *)tsdPtr->matchStorage;
+}
+
+/*
  *---------------------------------------------------------------------------
  *
  * CompileRegexp --
@@ -999,7 +1108,7 @@ CompileRegexp(
     int numChars, status, i, exact;
     Tcl_DString stringBuf;
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
-
+    
     if (!tsdPtr->initialized) {
 	tsdPtr->initialized = 1;
 	Tcl_CreateThreadExitHandler(FinalizeRegexp, NULL);
@@ -1090,6 +1199,13 @@ CompileRegexp(
 	if (!(flags & TCL_REG_NLSTOP)) {
 	    pcrecflags |= PCRE_DOTALL;
 	}
+	/*
+	 * Note that DFA currently does not support captured groups (substrings) at all,
+	 * but it returns all matched alternatives instead of. Disable capturing anyway.
+	 */
+	if ((flags & TCL_REG_PCDFA)) {
+	    pcrecflags |= PCRE_NO_AUTO_CAPTURE;
+	}
 
 	if (cstring[length] != 0) {
 	    cstring = (char *) ckalloc(length + 1);
@@ -1118,24 +1234,19 @@ CompileRegexp(
 	    return NULL;
 	}
 
-	/*
-	 * Allocate enough space for all of the subexpressions, plus one extra
-	 * for the entire pattern.
-	 */
-
-	rc = pcre_fullinfo(pcre, NULL, PCRE_INFO_CAPTURECOUNT, &nsubs);
-	if (rc == 0) {
-	    regexpPtr->re.re_nsub = nsubs;
-	    regexpPtr->offsets = (int *)
-		ckalloc(sizeof(int) * (nsubs+1)*3);
-	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
-	    if (sizeof(*regexpPtr->offsets)*2 != sizeof(*regexpPtr->matches)) {
-		regexpPtr->matches = (regmatch_t *) ckalloc(
-		    sizeof(regmatch_t) * (nsubs+1));
-	    } else {
-		regexpPtr->matches = (regmatch_t *)regexpPtr->offsets;
-	    }
+	nsubs = 0;
+	if (!(flags & TCL_REG_PCDFA)) {
+	  rc = pcre_fullinfo(pcre, NULL, PCRE_INFO_CAPTURECOUNT, &nsubs);
+	  if (rc != 0) {
+	    /* todo - error handling */
+	    nsubs = 0;
+	  }
 	}
+	regexpPtr->re.re_nsub = nsubs;
+
+	/* Don't allocate capture storages, it occurs on demand by the first usage */
+	regexpPtr->offsStorage = &(int *)emptyMatchStorage;
+	regexpPtr->matchStorage = &(regmatch_t *)emptyMatchStorage;
 #else
 	Tcl_AppendResult(interp,
 		"couldn't compile pcre pattern: pcre unavailabe", NULL);
@@ -1171,13 +1282,8 @@ CompileRegexp(
 	    return NULL;
 	}
 
-	/*
-	 * Allocate enough space for all of the subexpressions, plus one extra
-	 * for the entire pattern.
-	 */
-
-	regexpPtr->matches = (regmatch_t *) ckalloc(
-	    sizeof(regmatch_t) * (regexpPtr->re.re_nsub + 1));
+	/* Don't allocate capture storages, it occurs on demand by the first usage */
+	regexpPtr->matchStorage = &(regmatch_t *)emptyMatchStorage;
     }
 
     /*
@@ -1258,14 +1364,6 @@ FreeRegexp(
     if (regexpPtr->globObjPtr) {
 	TclDecrRefCount(regexpPtr->globObjPtr);
     }
-    if (regexpPtr->matches) {
-	ckfree((char *) regexpPtr->matches);
-    }
-#ifdef HAVE_PCRE
-    if (regexpPtr->offsets && regexpPtr->offsets != (int *)regexpPtr->matches) {
-	ckfree((char *) regexpPtr->offsets);
-    }
-#endif
     ckfree((char *) regexpPtr);
 }
 
@@ -1301,6 +1399,18 @@ FinalizeRegexp(
 	ckfree(tsdPtr->patterns[i]);
 	tsdPtr->patterns[i] = NULL;
     }
+#ifdef HAVE_PCRE
+    if (tsdPtr->offsStorage != NULL) {
+	ckfree((char *) tsdPtr->offsStorage);
+	tsdPtr->offsStorSize = 0;
+    }
+    if ( tsdPtr->matchStorage != NULL 
+      && tsdPtr->matchStorage != tsdPtr->offsStorage
+    ) {
+	ckfree((char *) tsdPtr->matchStorage);
+	tsdPtr->matchStorSize = 0;
+    }
+#endif
     /*
      * We may find ourselves reinitialized if another finalization routine
      * invokes regexps.
@@ -1598,10 +1708,13 @@ TclRegexpPCRE(
      * loop when the starting offset is past the end of the string.
      */
 
+    if (!(offsets = *regexpPtr->offsStorage)) {
+	AllocCaptStorage(regexpPtr);
+	offsets = *regexpPtr->offsStorage;
+    }
     re = regexpPtr->pcre;
     study = regexpPtr->study;
-    offsets = (int *) regexpPtr->offsets;
-    matchelems = (int) (regexpPtr->re.re_nsub + 1) * 3;
+    matchelems = VectorCoountPCRE(regexpPtr);
     eflags = PCRE_NO_UTF8_CHECK;
     if (all) {
 	pcre_fullinfo(re, NULL, PCRE_INFO_OPTIONS, &pcrecflags);
@@ -1655,8 +1768,16 @@ TclRegexpPCRE(
 	} else {
 	    //TODO:
 	    int wrkspace[60];
-	    match = pcre_dfa_exec(re, study, matchstr, stringLength,
-		offset, eflags, offsets, matchelems, wrkspace, 60);
+	    do {
+		match = pcre_dfa_exec(re, study, matchstr, stringLength,
+		    offset, eflags, offsets, matchelems, wrkspace, 60);
+		if (match) break;
+		/* insufficient capture space - enlarge vectors buffer */
+		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
+		AllocCaptStorage(regexpPtr);
+		offsets = *regexpPtr->offsStorage;
+		matchelems = VectorCoountPCRE(regexpPtr);
+	    } while(1);
 	}
 
 	if (match < -1) {
@@ -1712,10 +1833,12 @@ TclRegexpPCRE(
 	    /*
 	     * It's the number of substitutions, plus one for the matchVar at
 	     * index 0
-	     * Note we can get fewer matches as specified (thus just use [-1, -1] indices)
+	     * Note we can get fewer matches as specified (thus just use [-1, -1] indices).
+	     * In case of DFA we've count of matched alternatives here (sorted by longest match).
 	     */
 
-	    objc = regexpPtr->re.re_nsub + 1;
+	    objc = (!(regexpPtr->flags & TCL_REG_PCDFA)) ? 
+		regexpPtr->re.re_nsub + 1 : match;
 	    if (!resultPtr) {
 		resultPtr = Tcl_NewObj();
 	    }

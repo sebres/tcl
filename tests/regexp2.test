@@ -41,7 +41,7 @@ set err [catch {
 
     testConstraint reeng_$reeng [_test_reeng_available]
 
-    # wrapper for tests from regexp.test:
+    # wrapper for tests from regexp.test (add suffix with re-engine type):
     proc test {args} {
       variable reeng
       uplevel [list __test [lindex $args 0]-$reeng {*}[lrange $args 1 end]]
@@ -49,9 +49,15 @@ set err [catch {
 
 # ---------------------------------------------------------------------------
 
+# constraint for longest-match instead first-match supported for some features (e.g. alternative patterns):
+testConstraint longest-match [expr {[regexp -inline {a|ab|abc} abc] eq "abc"}]
+testConstraint pcre [expr {[interp regexp {}] eq "pcre"}]
+testConstraint dfa [expr {[interp regexp {}] eq "dfa"}]
+testConstraint classic [expr {[interp regexp {}] eq "classic"}]
+
 # special engine-related tests:
 
-test regexp-0.1 {test of interim "switch" of engine} -body {
+test regexp2-0.1 {test of interim "switch" of engine} -body {
   # this test will fail if current engine is not classic (no lookbehind syntax), and if it will be not
   # switched via parameter -type classic (regardless PCRE available or not)
   set re {(?<![xyz])abc|(?<!\d)cba}
@@ -61,6 +67,46 @@ test regexp-0.1 {test of interim "switch" of engine} -body {
 } -match glob -result \
 {1 {*quantifier operand invalid} 1 {*quantifier operand invalid} 1 {*quantifier operand invalid}}
 
+test regexp2-1.1   {alternative patterns: longest match} {longest-match} {
+  regexp {a|ab|abc} -abc- v; set v
+} {abc}
+test regexp2-1.1.1 {alternative patterns: first match} {pcre} {
+  regexp -inline {a|ab|abc} -abc-
+} {a}
+test regexp2-1.1.2 {alternative patterns: first/longest match} {pcre} {
+  regexp -inline {abc|ab|a} -abc-
+} {abc}
+test regexp2-1.1.1 {alternative patterns: all matches} {dfa} {
+  regexp -inline {a|ab|abc} -abc-
+} {abc ab a}
+test regexp2-1.1.1 {alternative patterns: longest match} {classic} {
+  regexp -inline {a|ab|abc} -abc-
+} {abc}
+test regexp2-1.2   {alternative patterns: longest match (end anchored)} {
+  regexp -inline {(?:a|ab|abc)$} -abc
+} {abc}
+test regexp2-1.2.1 {alternative patterns: longest match (word boundary)} {pcre} {
+  regexp -inline {(?:a|ab|abc)\b} -abc-
+} {abc}
+test regexp2-1.2.2 {alternative patterns: longest match (word boundary)} {dfa} {
+  regexp -inline {(?:a|ab|abc)\b} -abc-
+} {abc}
+test regexp2-1.2.2 {alternative patterns: longest match (word boundary)} {classic} {
+  regexp -inline {(?:a|ab|abc)\M} -abc-
+} {abc}
+test regexp2-1.3   {alternative patterns: longest match (start anchored)} {longest-match} {
+  regexp {^(?:a|ab|abc)} abc-; set v
+} {abc}
+test regexp2-1.3.1 {alternative patterns: longest match (start anchored + boundary)} {pcre} {
+  regexp -inline {^(?:a|bc|ab|abc)\b} abc-
+} {abc}
+test regexp2-1.3.2 {alternative patterns: longest match only (start anchored + boundary)} {dfa} {
+  regexp -inline {^(?:a|bc|ab|abc)\b} abc-
+} {abc}
+test regexp2-1.3.3 {alternative patterns: longest match (start anchored)} {classic} {
+  regexp -inline {^(?:a|bc|ab|abc)} abc-
+} {abc}
+
 # ---------------------------------------------------------------------------
 
     # skip all tests (already processed directly in regexp.test):
@@ -69,9 +115,11 @@ test regexp-0.1 {test of interim "switch" of engine} -body {
     if {![testConstraint reeng_$reeng]} {
       continue
     }
-
-    # evaluate the tests from regexp.test:
-    source -encoding utf-8 [file join [file dirname [info script]] regexp.test]
+    # evaluate the tests from regexp.test,
+    # don't test "dfa" here, because no group-captures at all supported (thus incompatible)
+    if {$reeng ne "dfa"} {
+      source -encoding utf-8 [file join [file dirname [info script]] regexp.test]
+    }
 
   }; #end of engine cycle
 
