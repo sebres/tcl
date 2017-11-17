@@ -28,6 +28,20 @@
  * in order to return pointers into the original string.
  */
 
+typedef struct {
+#ifdef HAVE_PCRE
+    int	  *offsets;		/* Storage for array of offsets (indices to handle within PCRE) */
+    size_t offsSize;
+    int	  *wrkSpace;		/* Workspace storage vector (used by parsing via DFA). */
+    int    wrkSpCnt;		/* Current length of shared workspace storage vector */
+    size_t wrkSpSize;
+#endif
+    regmatch_t *matches;	/* Storage for array of indices into the Tcl_UniChar */
+    size_t	matchSize;	/* representation of the last string matched
+				 * with this regexp to indicate the location
+				 * of subexpressions. */
+} TclRegexpStorage;
+
 typedef struct TclRegexp {
     int flags;			/* Regexp compile flags. */
     regex_t re;			/* Compiled re, includes number of
@@ -35,15 +49,11 @@ typedef struct TclRegexp {
 #ifdef HAVE_PCRE
     pcre *pcre;			/* PCRE compile re */
     pcre_extra *study;		/* study of PCRE */
-    int **offsStorage;		/* Storage for array of offsets (indices to handle within PCRE) */
 #endif
     CONST char *string;		/* Last string passed to Tcl_RegExpExec. */
     Tcl_Obj *objPtr;		/* Last object passed to Tcl_RegExpExecObj. */
     Tcl_Obj *globObjPtr;	/* Glob pattern rep of RE or NULL if none. */
-    regmatch_t **matchStorage;	/* Storage for array of indices into the Tcl_UniChar
-				 * representation of the last string matched
-				 * with this regexp to indicate the location
-				 * of subexpressions. */
+    TclRegexpStorage *reStorage;/* Shared storage for array of indices, matches, workspace etc. */
     rm_detail_t details;	/* Detailed information on match (currently
 				 * used only for REG_EXPECT). */
     int refCount;		/* Count of number of references to this

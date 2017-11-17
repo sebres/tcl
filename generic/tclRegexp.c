@@ -75,19 +75,10 @@ typedef struct ThreadSpecificData {
     struct TclRegexp *regexps[NUM_REGEXPS];
 				/* Compiled forms of above strings. Also
 				 * malloc-ed, or NULL if not in use yet. */
-#ifdef HAVE_PCRE
-    void  *offsStorage;		/* TSD global storeage for offsets/matches */
-    size_t offsStorSize;
-    void  *matchStorage;
-    size_t matchStorSize;
-#endif
+    TclRegexpStorage reStorage;	/* TSD global (shared) storage for offsets/matches/workspace */
 } ThreadSpecificData;
 
 static Tcl_ThreadDataKey dataKey;
-
-/* Static storage just points to NULL used as initial pointer for regexp storages */
-static void *emptyMatchStorage = NULL;
-
 
 /*
  * Declarations for functions used only in this file.
@@ -111,6 +102,8 @@ typedef struct {
     int rm_so;		/* start of substring */
     int rm_eo;		/* end of substring */
 } regoffs_t;
+
+static void		EnlargeWrkSpaceStorage(TclRegexp *regexpPtr);
 
 #define	VectorCoountPCRE(regexpPtr) \
 		((int)(regexpPtr->re.re_nsub+1)*3)
@@ -262,7 +255,7 @@ Tcl_RegExpRange(
 				 * in (sub-)range here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
-    regmatch_t *matches = *regexpPtr->matchStorage;
+    regmatch_t *matches = regexpPtr->reStorage->matches;
     const char *string;
 
     if ((size_t) index > regexpPtr->re.re_nsub) {
@@ -315,21 +308,18 @@ RegExpExecUniChar(
 {
     int status;
     TclRegexp *regexpPtr = (TclRegexp *) re;
+    TclRegexpStorage *reStorage = regexpPtr->reStorage;
     size_t last = regexpPtr->re.re_nsub + 1;
-    regmatch_t *matches;
     size_t nm = last;
 
     if (nmatches >= 0 && (size_t) nmatches < nm) {
 	nm = (size_t) nmatches;
     }
 
-    if (!(matches = *regexpPtr->matchStorage)) {
-	AllocCaptStorage(regexpPtr);
-	matches = *regexpPtr->matchStorage;
-    }
+    AllocCaptStorage(regexpPtr);
 
     status = TclReExec(&regexpPtr->re, wString, (size_t) numChars,
-	    &regexpPtr->details, nm, matches, flags);
+	    &regexpPtr->details, nm, reStorage->matches, flags);
 
     /*
      * Check for errors.
@@ -382,7 +372,7 @@ TclRegExpRangeUniChar(
 				 * in (sub-)range here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
-    regmatch_t *matches = *regexpPtr->matchStorage;
+    regmatch_t *matches = regexpPtr->reStorage->matches;
 
     if ((regexpPtr->flags&REG_EXPECT) && index == -1) {
 	*startPtr = regexpPtr->details.rm_extend.rm_so;
@@ -462,6 +452,7 @@ Tcl_RegExpExecObj(
     int flags)			/* Regular expression execution flags. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
+    TclRegexpStorage *reStorage = regexpPtr->reStorage;
     int length;
     int reflags = regexpPtr->flags;
 #define TCL_REG_GLOBOK_FLAGS (TCL_REG_ADVANCED | TCL_REG_NOSUB | TCL_REG_NOCASE)
@@ -497,10 +488,9 @@ Tcl_RegExpExecObj(
 	const char *matchstr;
 	int match, eflags, *offsets, nm = VectorCoountPCRE(regexpPtr);
 
-    	if (!(offsets = *regexpPtr->offsStorage)) {
-	    AllocCaptStorage(regexpPtr);
-	    offsets = *regexpPtr->offsStorage;
-	}
+	AllocCaptStorage(regexpPtr);
+	offsets = reStorage->offsets;
+
 	if (textObj->typePtr == &tclByteArrayType) {
 	    matchstr = Tcl_GetByteArrayFromObj(textObj, &length);
 	} else {
@@ -534,16 +524,18 @@ Tcl_RegExpExecObj(
 		matchstr, length, offset, eflags, offsets, nm);
 	} else {
 	    //TODO:
-	    int wrkspace[60];
 	    do {
 		match = pcre_dfa_exec(regexpPtr->pcre, regexpPtr->study,
 		    matchstr, length, offset, eflags, offsets, nm, 
-		    wrkspace, 60);
+		    reStorage->wrkSpace, reStorage->wrkSpCnt);
+		if (match == PCRE_ERROR_DFA_WSSIZE) {
+		    EnlargeWrkSpaceStorage(regexpPtr);
+		    continue;
+	        }
 		if (match) break;
 		/* insufficient capture space - enlarge vectors buffer */
 		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
 		AllocCaptStorage(regexpPtr);
-		offsets = *regexpPtr->offsStorage;
 		nm = VectorCoountPCRE(regexpPtr);
 	    } while(1);
 	}
@@ -659,12 +651,12 @@ Tcl_RegExpGetInfo(
     Tcl_RegExpInfo *infoPtr)	/* Match information is stored here. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) regexp;
-    regmatch_t *matches = *regexpPtr->matchStorage;
+    regmatch_t *matches = regexpPtr->reStorage->matches;
 
     infoPtr->nsubs = regexpPtr->re.re_nsub;
     if (regexpPtr->flags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
-    	int *offsets = *regexpPtr->offsStorage;
+    	int *offsets = regexpPtr->reStorage->offsets;
 	if ((int *)matches != offsets) {
 	    int i;
 	    for (i = 0; i <= infoPtr->nsubs; i++) {
@@ -1015,8 +1007,8 @@ SetRegexpFromAny(
 static void
 AllocCaptStorage(TclRegexp *regexpPtr)
 {
-    ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
     int veccnt, nsubs = regexpPtr->re.re_nsub;
+    TclRegexpStorage *reStorage = regexpPtr->reStorage;
 
 #ifdef HAVE_PCRE
     /* 
@@ -1025,54 +1017,76 @@ AllocCaptStorage(TclRegexp *regexpPtr)
      * if sizes of regoffs_t and regmatch_t are equal.
      */
     veccnt = VectorCoountPCRE(regexpPtr);
-    if (!tsdPtr->offsStorage || tsdPtr->offsStorSize < sizeof(int) * veccnt) {
-	tsdPtr->offsStorSize = sizeof(int) * veccnt;
+    if (!reStorage->offsets || reStorage->offsSize < sizeof(int) * veccnt) {
+	reStorage->offsSize = sizeof(int) * veccnt;
 	/* if initial call (first call) */
-	if (!tsdPtr->offsStorage) {
-	    tsdPtr->offsStorage = ckalloc(tsdPtr->offsStorSize);
+	if (!reStorage->offsets) {
+	    reStorage->offsets = (int*)ckalloc(reStorage->offsSize);
 	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
 	    if (sizeof(regoffs_t) != sizeof(regmatch_t)) {
-		tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
-		tsdPtr->matchStorage = ckalloc(tsdPtr->matchStorSize);
+		reStorage->matchSize = sizeof(regmatch_t) * (nsubs+1);
+		reStorage->matches = (regmatch_t*)ckalloc(reStorage->matchSize);
 	    } else {
-		tsdPtr->matchStorSize = tsdPtr->offsStorSize;
-		tsdPtr->matchStorage = tsdPtr->offsStorage;
+		reStorage->matchSize = reStorage->offsSize;
+		reStorage->matches = (regmatch_t*)reStorage->offsets;
 	    }
 	} else {
 	    /* enlarge storages */
-	    tsdPtr->offsStorage = ckrealloc(
-		(char*)tsdPtr->offsStorage, sizeof(int) * veccnt);
+	    reStorage->offsets = (int*)ckrealloc(
+		(char*)reStorage->offsets, sizeof(int) * veccnt);
 	    /* we can use matches = offsets if size of two int's is equal regmatch_t structure */
 	    if (sizeof(regoffs_t) != sizeof(regmatch_t)) {
-		tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
-		tsdPtr->matchStorage = ckrealloc(
-		    (char*)tsdPtr->matchStorage, tsdPtr->matchStorSize);
+		reStorage->matchSize = sizeof(regmatch_t) * (nsubs+1);
+		reStorage->matches = (regmatch_t*)ckrealloc(
+		    (char*)reStorage->matches, reStorage->matchSize);
 	    } else {
-		tsdPtr->matchStorSize = tsdPtr->offsStorSize;
-		tsdPtr->matchStorage = tsdPtr->offsStorage;
+		reStorage->matchSize = reStorage->offsSize;
+		reStorage->matches = (regmatch_t*)reStorage->offsets;
 	    }
 	}
     }
 
-    /* set current references in regexp for fast access without TSD lookup */
-    regexpPtr->offsStorage = &(int *)tsdPtr->offsStorage;
+    /* if DFA and still no workspace allocated - initial call */
+    if ((regexpPtr->flags & TCL_REG_PCDFA) && !reStorage->wrkSpace) {
+	reStorage->wrkSpCnt = 60;
+	reStorage->wrkSpSize = sizeof(int) * reStorage->wrkSpCnt;
+	reStorage->wrkSpace = (int *)ckalloc(reStorage->wrkSpSize);
+    }
+
 #else
-    if (!tsdPtr->matchStorage || tsdPtr->matchStorSize < sizeof(regmatch_t) * (nsubs+1)) {
-	tsdPtr->matchStorSize = sizeof(regmatch_t) * (nsubs+1);
+
+    if (!reStorage->matches || reStorage->matchSize < sizeof(regmatch_t) * (nsubs+1)) {
+	reStorage->matchSize = sizeof(regmatch_t) * (nsubs+1);
 	/* if initial call (first call) */
-	if (!tsdPtr->matchStorage) {
-	    tsdPtr->matchStorage = ckalloc(tsdPtr->matchStorSize);
+	if (!reStorage->matches) {
+	    reStorage->matches = (regmatch_t*)ckalloc(reStorage->matchSize);
 	} else {
 	    /* enlarge storage */
-	    tsdPtr->matchStorage = ckrealloc(
-		(char*)tsdPtr->matchStorage, tsdPtr->matchStorSize);
+	    reStorage->matches = (regmatch_t*)ckrealloc(
+		(char*)reStorage->matches, reStorage->matchSize);
 	}
     }
 #endif
-
-    /* set current references in regexp for fast access without TSD lookup */
-    regexpPtr->matchStorage = &(regmatch_t *)tsdPtr->matchStorage;
 }
+
+#ifdef HAVE_PCRE
+static void
+EnlargeWrkSpaceStorage(TclRegexp *regexpPtr) {
+    TclRegexpStorage *reStorage = regexpPtr->reStorage;
+    size_t newSize;
+
+    /* double size, just to avoid too many reallocations */
+    reStorage->wrkSpCnt *= 2;
+    newSize = sizeof(int) * reStorage->wrkSpCnt;
+
+    if (reStorage->wrkSpSize < newSize) {
+	reStorage->wrkSpSize = newSize;
+	/* enlarge storage */
+	reStorage->wrkSpace = (int*)ckrealloc(
+	    (char*)reStorage->wrkSpace, newSize);
+    }
+}
+#endif
 
 /*
  *---------------------------------------------------------------------------
@@ -1244,9 +1258,6 @@ CompileRegexp(
 	}
 	regexpPtr->re.re_nsub = nsubs;
 
-	/* Don't allocate capture storages, it occurs on demand by the first usage */
-	regexpPtr->offsStorage = &(int *)emptyMatchStorage;
-	regexpPtr->matchStorage = &(regmatch_t *)emptyMatchStorage;
 #else
 	Tcl_AppendResult(interp,
 		"couldn't compile pcre pattern: pcre unavailabe", NULL);
@@ -1281,10 +1292,13 @@ CompileRegexp(
 	    }
 	    return NULL;
 	}
-
-	/* Don't allocate capture storages, it occurs on demand by the first usage */
-	regexpPtr->matchStorage = &(regmatch_t *)emptyMatchStorage;
     }
+
+    /*
+     * Don't allocate capture storages, it occurs on demand by the first usage,
+     * just set current reference in regexp for fast storage access without TSD lookup.
+     */
+    regexpPtr->reStorage = &tsdPtr->reStorage;
 
     /*
      * Convert RE to a glob pattern equivalent, if any, and cache it.  If this
@@ -1390,6 +1404,7 @@ FinalizeRegexp(
     int i;
     TclRegexp *regexpPtr;
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
+    TclRegexpStorage *reStorage = &tsdPtr->reStorage;
 
     for (i = 0; (i < NUM_REGEXPS) && (tsdPtr->patterns[i] != NULL); i++) {
 	regexpPtr = tsdPtr->regexps[i];
@@ -1400,17 +1415,24 @@ FinalizeRegexp(
 	tsdPtr->patterns[i] = NULL;
     }
 #ifdef HAVE_PCRE
-    if (tsdPtr->offsStorage != NULL) {
-	ckfree((char *) tsdPtr->offsStorage);
-	tsdPtr->offsStorSize = 0;
+    if (reStorage->offsets != NULL) {
+    	/* preserve dual release of same block */
+	if ((int*)reStorage->matches == reStorage->offsets) {
+	    reStorage->matches = NULL;
+	}
+	ckfree((char *) reStorage->offsets);
+	reStorage->offsSize = 0;
     }
-    if ( tsdPtr->matchStorage != NULL 
-      && tsdPtr->matchStorage != tsdPtr->offsStorage
-    ) {
-	ckfree((char *) tsdPtr->matchStorage);
-	tsdPtr->matchStorSize = 0;
+    if (reStorage->wrkSpace != NULL) {
+	ckfree((char *) reStorage->wrkSpace);
+	reStorage->wrkSpSize = 0;
+	reStorage->wrkSpCnt = 0;
     }
 #endif
+    if (reStorage->matches != NULL) {
+	ckfree((char *) reStorage->matches);
+	reStorage->matchSize = 0;
+    }
     /*
      * We may find ourselves reinitialized if another finalization routine
      * invokes regexps.
@@ -1683,6 +1705,7 @@ TclRegexpPCRE(
     pcre *re;
     pcre_extra *study;
     TclRegexp *regexpPtr = (TclRegexp *) regExpr;
+    TclRegexpStorage *reStorage = regexpPtr->reStorage;
 
     objPtr = objv[1];
     /*
@@ -1698,6 +1721,9 @@ TclRegexpPCRE(
 	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
     }
 
+    AllocCaptStorage(regexpPtr);
+    offsets = reStorage->offsets;
+
     objc -= 2;
     objv += 2;
 
@@ -1708,10 +1734,6 @@ TclRegexpPCRE(
      * loop when the starting offset is past the end of the string.
      */
 
-    if (!(offsets = *regexpPtr->offsStorage)) {
-	AllocCaptStorage(regexpPtr);
-	offsets = *regexpPtr->offsStorage;
-    }
     re = regexpPtr->pcre;
     study = regexpPtr->study;
     matchelems = VectorCoountPCRE(regexpPtr);
@@ -1766,16 +1788,18 @@ TclRegexpPCRE(
 	    match = pcre_exec(re, study, matchstr, stringLength,
 		offset, eflags, offsets, matchelems);
 	} else {
-	    //TODO:
-	    int wrkspace[60];
 	    do {
 		match = pcre_dfa_exec(re, study, matchstr, stringLength,
-		    offset, eflags, offsets, matchelems, wrkspace, 60);
+		    offset, eflags, offsets, matchelems,
+		    reStorage->wrkSpace, reStorage->wrkSpCnt);
+		if (match == PCRE_ERROR_DFA_WSSIZE) {
+		    EnlargeWrkSpaceStorage(regexpPtr);
+		    continue;
+	        }
 		if (match) break;
 		/* insufficient capture space - enlarge vectors buffer */
 		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
 		AllocCaptStorage(regexpPtr);
-		offsets = *regexpPtr->offsStorage;
 		matchelems = VectorCoountPCRE(regexpPtr);
 	    } while(1);
 	}
