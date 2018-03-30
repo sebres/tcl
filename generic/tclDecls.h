@@ -136,8 +136,7 @@ EXTERN Tcl_Obj *	Tcl_DbNewStringObj(const char *bytes, int length,
 				const char *file, int line);
 /* 29 */
 EXTERN Tcl_Obj *	Tcl_DuplicateObj(Tcl_Obj *objPtr);
-/* 30 */
-EXTERN void		TclFreeObj(Tcl_Obj *objPtr);
+/* Slot 30 is reserved */
 /* 31 */
 EXTERN int		Tcl_GetBoolean(Tcl_Interp *interp, const char *src,
 				int *boolPtr);
@@ -1781,6 +1780,12 @@ EXTERN Tcl_Channel	Tcl_OpenTcpServerEx(Tcl_Interp *interp,
 				unsigned int flags,
 				Tcl_TcpAcceptProc *acceptProc,
 				ClientData callbackData);
+/* 632 */
+EXTERN void		Tcl_IncrRefCount(Tcl_Obj *objPtr);
+/* 633 */
+EXTERN void		Tcl_DecrRefCount(Tcl_Obj *objPtr);
+/* 634 */
+EXTERN int		Tcl_IsShared(Tcl_Obj *objPtr);
 
 typedef struct {
     const struct TclPlatStubs *tclPlatStubs;
@@ -1838,7 +1843,7 @@ typedef struct TclStubs {
     Tcl_Obj * (*tcl_DbNewObj) (const char *file, int line); /* 27 */
     Tcl_Obj * (*tcl_DbNewStringObj) (const char *bytes, int length, const char *file, int line); /* 28 */
     Tcl_Obj * (*tcl_DuplicateObj) (Tcl_Obj *objPtr); /* 29 */
-    void (*tclFreeObj) (Tcl_Obj *objPtr); /* 30 */
+    void (*reserved30)(void);
     int (*tcl_GetBoolean) (Tcl_Interp *interp, const char *src, int *boolPtr); /* 31 */
     int (*tcl_GetBooleanFromObj) (Tcl_Interp *interp, Tcl_Obj *objPtr, int *boolPtr); /* 32 */
     unsigned char * (*tcl_GetByteArrayFromObj) (Tcl_Obj *objPtr, int *lengthPtr); /* 33 */
@@ -2448,6 +2453,9 @@ typedef struct TclStubs {
     int (*tcl_FSUnloadFile) (Tcl_Interp *interp, Tcl_LoadHandle handlePtr); /* 629 */
     void (*tcl_ZlibStreamSetCompressionDictionary) (Tcl_ZlibStream zhandle, Tcl_Obj *compressionDictionaryObj); /* 630 */
     Tcl_Channel (*tcl_OpenTcpServerEx) (Tcl_Interp *interp, const char *service, const char *host, unsigned int flags, Tcl_TcpAcceptProc *acceptProc, ClientData callbackData); /* 631 */
+    void (*tcl_IncrRefCount) (Tcl_Obj *objPtr); /* 632 */
+    void (*tcl_DecrRefCount) (Tcl_Obj *objPtr); /* 633 */
+    int (*tcl_IsShared) (Tcl_Obj *objPtr); /* 634 */
 } TclStubs;
 
 extern const TclStubs *tclStubsPtr;
@@ -2532,8 +2540,7 @@ extern const TclStubs *tclStubsPtr;
 	(tclStubsPtr->tcl_DbNewStringObj) /* 28 */
 #define Tcl_DuplicateObj \
 	(tclStubsPtr->tcl_DuplicateObj) /* 29 */
-#define TclFreeObj \
-	(tclStubsPtr->tclFreeObj) /* 30 */
+/* Slot 30 is reserved */
 #define Tcl_GetBoolean \
 	(tclStubsPtr->tcl_GetBoolean) /* 31 */
 #define Tcl_GetBooleanFromObj \
@@ -3716,6 +3723,12 @@ extern const TclStubs *tclStubsPtr;
 	(tclStubsPtr->tcl_ZlibStreamSetCompressionDictionary) /* 630 */
 #define Tcl_OpenTcpServerEx \
 	(tclStubsPtr->tcl_OpenTcpServerEx) /* 631 */
+#define Tcl_IncrRefCount \
+	(tclStubsPtr->tcl_IncrRefCount) /* 632 */
+#define Tcl_DecrRefCount \
+	(tclStubsPtr->tcl_DecrRefCount) /* 633 */
+#define Tcl_IsShared \
+	(tclStubsPtr->tcl_IsShared) /* 634 */
 
 #endif /* defined(USE_TCL_STUBS) */
 

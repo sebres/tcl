@@ -4094,6 +4094,8 @@ typedef const char *TclDTraceStr;
 #  define TclFreeObjStorage(objPtr)		\
 	TclFreeObjStorageEx(NULL, (objPtr))
 
+MODULE_SCOPE void	TclFreeObj(Tcl_Obj *objPtr);
+
 #ifndef TCL_MEM_DEBUG
 # define TclNewObj(objPtr) \
     TclIncrObjsAllocated(); \

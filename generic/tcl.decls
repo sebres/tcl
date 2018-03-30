@@ -134,9 +134,9 @@ declare 28 {
 declare 29 {
     Tcl_Obj *Tcl_DuplicateObj(Tcl_Obj *objPtr)
 }
-declare 30 {
-    void TclFreeObj(Tcl_Obj *objPtr)
-}
+#declare 30 {
+#    void TclFreeObj(Tcl_Obj *objPtr)
+#}
 declare 31 {
     int Tcl_GetBoolean(Tcl_Interp *interp, const char *src, int *boolPtr)
 }
@@ -2357,6 +2357,22 @@ declare 631 {
 }
 
 # ----- BASELINE -- FOR -- 8.7.0 ----- #
+
+
+
+# ----- BASELINE -- FOR -- 9.0.0 ----- #
+
+declare 632 {
+    void Tcl_IncrRefCount(Tcl_Obj *objPtr)
+}
+
+declare 633 {
+    void Tcl_DecrRefCount(Tcl_Obj *objPtr)
+}
+
+declare 634 {
+    int Tcl_IsShared(Tcl_Obj *objPtr)
+}
 
 
 
