@@ -18,6 +18,9 @@ MODULE_SCOPE const TclPlatStubs *tclPlatStubsPtr;
 MODULE_SCOPE const TclIntStubs *tclIntStubsPtr;
 MODULE_SCOPE const TclIntPlatStubs *tclIntPlatStubsPtr;
 
+typedef const TclStubs *_t_TclGetStubs();
+_t_TclGetStubs *TclGetStubs = NULL;
+
 const TclStubs *tclStubsPtr = NULL;
 const TclPlatStubs *tclPlatStubsPtr = NULL;
 const TclIntStubs *tclIntStubsPtr = NULL;
@@ -116,6 +119,88 @@ Tcl_InitStubs(
     }
 
     return actualVersion;
+}
+
+static void *
+TclpGetStubsLoader(void) {
+    void *addr;
+#if defined(WINDOWS) || defined(WIN32)
+    HINSTANCE hInstance = LoadLibraryEx(
+		L"tcl" STRINGIFY(TCL_MAJOR_VERSION) STRINGIFY(TCL_MINOR_VERSION) ".dll", NULL,
+		LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!hInstance) {
+	return NULL;
+    }
+    addr = (void *)GetProcAddress(hInstance, "_TclGetStubs");
+    if (!addr) {
+	addr = (void *)GetProcAddress(hInstance, "TclGetStubs");
+    }
+#else
+    void* library = dlopen("libtcl" STRINGIFY(TCL_MAJOR_VERSION) STRINGIFY(TCL_MINOR_VERSION) ".so", RTLD_LAZY);
+    if (library == NULL) {
+	return NULL;
+    }
+    addr = dlsym(library, "TclGetStubs");
+#endif
+    return addr;
+}
+/*
+ *----------------------------------------------------------------------
+ *
+ * Tcl_InitProcess --
+ *
+ *	Tries to initialise the application for the first usage of Tcl,
+ *	stub table pointers etc.
+ *
+ * Results:
+ *	The actual version of Tcl that satisfies the request, or NULL to
+ *	indicate that an error occurred.
+ *
+ * Side effects:
+ *	Sets the stub table pointers.
+ *
+ *----------------------------------------------------------------------
+ */
+MODULE_SCOPE const char *
+Tcl_InitProcess(Tcl_Interp **interpPtr) {
+
+    const char * res = NULL;
+
+    if (tclStubsPtr == NULL) {
+	if (!TclGetStubs) {
+	    TclGetStubs = TclpGetStubsLoader();
+	    if (!TclGetStubs) {
+		return NULL;
+	    }
+	}
+	tclStubsPtr = TclGetStubs();
+	if (!tclStubsPtr || (tclStubsPtr->magic != TCL_STUB_MAGIC)) {
+	    tclStubsPtr = NULL;
+	    return NULL;
+	}
+
+	tclStubsPtr->tcl_FindExecutable(NULL);
+    }
+
+    if (interpPtr) {
+	*interpPtr = tclStubsPtr->tcl_CreateInterp();
+	if (!*interpPtr) {
+	    return NULL;
+	}
+
+	res = Tcl_InitStubs(*interpPtr, TCL_VERSION, 0);
+	if (res == NULL) {
+	    return NULL;
+	}
+
+	if (interpPtr && tclStubsPtr->tcl_Init(*interpPtr) == TCL_ERROR) {
+	    return NULL;
+	}
+    } else {
+    	res = TCL_VERSION;
+    }
+
+    return res;
 }
 
 /*

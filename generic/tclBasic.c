@@ -431,6 +431,11 @@ TclFinalizeEvaluation(void)
     Tcl_MutexUnlock(&cancelLock);
 }
 
+DLLEXPORT const TclStubs *
+TclGetStubs() {
+    return &tclStubs;
+}
+
 /*
  *----------------------------------------------------------------------
  *

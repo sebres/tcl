@@ -2401,6 +2401,7 @@ typedef int (Tcl_NRPostProc) (ClientData data[], Tcl_Interp *interp,
  * main library in case an extension is statically linked into an application.
  */
 
+const char *    Tcl_InitProcess(Tcl_Interp **interpPtr);
 const char *		Tcl_InitStubs(Tcl_Interp *interp, const char *version,
 			    int exact);
 const char *		TclTomMathInitializeStubs(Tcl_Interp *interp,
