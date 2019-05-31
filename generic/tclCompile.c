@@ -1002,15 +1002,16 @@ TclCleanupByteCode(
     register ByteCode *codePtr)	/* Points to the ByteCode to free. */
 {
     Tcl_Interp *interp = (Tcl_Interp *) *codePtr->interpHandle;
-    Interp *iPtr = (Interp *) interp;
     int numLitObjects = codePtr->numLitObjects;
     int numAuxDataItems = codePtr->numAuxDataItems;
     register Tcl_Obj **objArrayPtr, *objPtr;
     register const AuxData *auxDataPtr;
+    BCExtLineInfo * bcLI;
     int i;
 #ifdef TCL_COMPILE_STATS
 
     if (interp != NULL) {
+	Interp *iPtr = (Interp *) interp;
 	ByteCodeStats *statsPtr;
 	Tcl_Time destroyTime;
 	int lifetimeSec, lifetimeMicroSec, log2;
@@ -1096,19 +1097,15 @@ TclCleanupByteCode(
 
     /*
      * TIP #280. Release the location data associated with this byte code
-     * structure, if any. NOTE: The interp we belong to may be gone already,
-     * and the data with it.
-     *
-     * See also tclBasic.c, DeleteInterpProc
+     * structure, if any.
      */
 
-    if (iPtr) {
-	Tcl_HashEntry *hePtr = Tcl_FindHashEntry(iPtr->lineBCPtr,
-		(char *) codePtr);
-
-	if (hePtr) {
-	    ReleaseCmdWordData(Tcl_GetHashValue(hePtr));
-	    Tcl_DeleteHashEntry(hePtr);
+    bcLI = TclByteCodeGetELI(codePtr);
+    if (bcLI) {
+	ExtCmdLoc *eclPtr = bcLI->eclPtr;
+	if (eclPtr) {
+	    bcLI->eclPtr = NULL;
+	    ReleaseCmdWordData(eclPtr);
 	}
     }
 
@@ -1117,6 +1114,11 @@ TclCleanupByteCode(
     }
 
     TclHandleRelease(codePtr->interpHandle);
+    
+    /* Correct code pointer to free */
+    if (bcLI) {
+	codePtr = (ByteCode *)bcLI;
+    }
     ckfree(codePtr);
 }
 
@@ -2753,6 +2755,7 @@ TclInitByteCodeObj(
 				 * which to create a ByteCode structure. */
 {
     register ByteCode *codePtr;
+    BCExtLineInfo * bcLI;
     size_t codeBytes, objArrayBytes, exceptArrayBytes, cmdLocBytes;
     size_t auxDataArrayBytes, structureSize;
     register unsigned char *p;
@@ -2761,7 +2764,7 @@ TclInitByteCodeObj(
 #endif
     int numLitObjects = envPtr->literalArrayNext;
     Namespace *namespacePtr;
-    int i, isNew;
+    int i;
     Interp *iPtr;
 
     if (envPtr->iPtr == NULL) {
@@ -2780,20 +2783,22 @@ TclInitByteCodeObj(
      * Compute the total number of bytes needed for this bytecode.
      */
 
-    structureSize = sizeof(ByteCode);
+    structureSize = sizeof(BCExtLineInfo) + sizeof(ByteCode);
     structureSize += TCL_ALIGN(codeBytes);	  /* align object array */
     structureSize += TCL_ALIGN(objArrayBytes);	  /* align exc range arr */
     structureSize += TCL_ALIGN(exceptArrayBytes); /* align AuxData array */
     structureSize += auxDataArrayBytes;
     structureSize += cmdLocBytes;
 
-    if (envPtr->iPtr->varFramePtr != NULL) {
-	namespacePtr = envPtr->iPtr->varFramePtr->nsPtr;
+    if (iPtr->varFramePtr != NULL) {
+	namespacePtr = iPtr->varFramePtr->nsPtr;
     } else {
-	namespacePtr = envPtr->iPtr->globalNsPtr;
+	namespacePtr = iPtr->globalNsPtr;
     }
 
     p = ckalloc(structureSize);
+    bcLI = (BCExtLineInfo *)p;
+    p += sizeof(BCExtLineInfo);
     codePtr = (ByteCode *) p;
     codePtr->interpHandle = TclHandlePreserve(iPtr->handle);
     codePtr->compileEpoch = iPtr->compileEpoch;
@@ -2903,8 +2908,7 @@ TclInitByteCodeObj(
      * byte code object (internal rep), for use with the bc compiler.
      */
 
-    Tcl_SetHashValue(Tcl_CreateHashEntry(iPtr->lineBCPtr, codePtr,
-	    &isNew), envPtr->extCmdMapPtr);
+    bcLI->eclPtr = envPtr->extCmdMapPtr;
     envPtr->extCmdMapPtr = NULL;
 
     /* We've used up the CompileEnv.  Mark as uninitialized. */

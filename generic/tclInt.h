@@ -2031,12 +2031,7 @@ typedef struct Interp {
 				 * for its body. It is keyed by the address of
 				 * the Proc structure for a procedure. The
 				 * values are "struct CmdFrame*". */
-    Tcl_HashTable *lineBCPtr;	/* This table remembers for each ByteCode
-				 * object the location information for its
-				 * body. It is keyed by the address of the
-				 * Proc structure for a procedure. The values
-				 * are "struct ExtCmdLoc*". (See
-				 * tclCompile.h) */
+    Tcl_HashTable *unused_LBCP;	/* No longer used (was lineBCPtr) */
     Tcl_HashTable *lineLABCPtr;
     Tcl_HashTable *lineLAPtr;	/* This table remembers for each argument of a
 				 * command on the execution stack the index of

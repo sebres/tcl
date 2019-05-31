@@ -174,8 +174,7 @@ typedef struct CmdLocation {
  * Structure to record additional location information for byte code. This
  * information is internal and not saved. i.e. tbcload'ed code will not have
  * this information. It records the lines for all words of all commands found
- * in the byte code. The association with a ByteCode structure BC is done
- * through the 'lineBCPtr' HashTable in Interp, keyed by the address of BC.
+ * in the byte code. This is stored as reference in a BCExtLineInfo structure.
  * Also recorded is information coming from the context, i.e. type of the
  * frame and associated information, like the path of a sourced file.
  */
@@ -514,6 +513,22 @@ typedef struct ByteCode {
 				 * created. */
 #endif /* TCL_COMPILE_STATS */
 } ByteCode;
+
+/*
+ * TIP #280: This provides a facilities for the bytecode extended line info,
+ * which is allocated as a BCExtLineInfo structure together with a ByteCode,
+ * if it is compiled from source (not precompiled).
+ */
+typedef struct BCExtLineInfo {
+    ExtCmdLoc *eclPtr;		/* Holds location information of byte code. */
+} BCExtLineInfo;
+
+#define TclByteCodeHasELI(codePtr) \
+	(!((codePtr)->flags & TCL_BYTECODE_PRECOMPILED))
+#define TclByteCodeGetELI(codePtr) \
+	    (TclByteCodeHasELI(codePtr) \
+		? ((BCExtLineInfo*)(codePtr))-1 : NULL)
+
 
 /*
  * Opcodes for the Tcl bytecode instructions. These must correspond to the
