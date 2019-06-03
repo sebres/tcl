@@ -467,66 +467,7 @@ TclOOMakeProcInstanceMethod(
     procPtr->cmdPtr = NULL;
 
     if (iPtr->cmdFramePtr) {
-	CmdFrame context = *iPtr->cmdFramePtr;
-
-	if (context.type == TCL_LOCATION_BC) {
-	    /*
-	     * Retrieve source information from the bytecode, if possible. If
-	     * the information is retrieved successfully, context.type will be
-	     * TCL_LOCATION_SOURCE and the reference held by
-	     * context.data.eval.path will be counted.
-	     */
-
-	    TclGetSrcInfoForPc(&context);
-	} else if (context.type == TCL_LOCATION_SOURCE) {
-	    /*
-	     * The copy into 'context' up above has created another reference
-	     * to 'context.data.eval.path'; account for it.
-	     */
-
-	    Tcl_IncrRefCount(context.data.eval.path);
-	}
-
-	if (context.type == TCL_LOCATION_SOURCE) {
-	    /*
-	     * We can account for source location within a proc only if the
-	     * proc body was not created by substitution.
-	     * (FIXME: check that this is sane and correct!)
-	     */
-
-	    if (context.line
-		    && (context.nline >= 4) && (context.line[3] >= 0)) {
-		int isNew;
-		CmdFrame *cfPtr = ckalloc(sizeof(CmdFrame));
-		Tcl_HashEntry *hPtr;
-
-		cfPtr->level = -1;
-		cfPtr->type = context.type;
-		cfPtr->line = ckalloc(sizeof(int));
-		cfPtr->line[0] = context.line[3];
-		cfPtr->nline = 1;
-		cfPtr->framePtr = NULL;
-		cfPtr->nextPtr = NULL;
-
-		cfPtr->data.eval.path = context.data.eval.path;
-		Tcl_IncrRefCount(cfPtr->data.eval.path);
-
-		cfPtr->cmd = NULL;
-		cfPtr->len = 0;
-
-		hPtr = Tcl_CreateHashEntry(iPtr->linePBodyPtr,
-			(char *) procPtr, &isNew);
-		Tcl_SetHashValue(hPtr, cfPtr);
-	    }
-
-	    /*
-	     * 'context' is going out of scope; account for the reference that
-	     * it's holding to the path name.
-	     */
-
-	    Tcl_DecrRefCount(context.data.eval.path);
-	    context.data.eval.path = NULL;
-	}
+	TclProcCmdFrameSet(procPtr, 3, 0);
     }
 
     return Tcl_NewInstanceMethod(interp, (Tcl_Object) oPtr, nameObj, flags,
@@ -580,66 +521,7 @@ TclOOMakeProcMethod(
     procPtr->cmdPtr = NULL;
 
     if (iPtr->cmdFramePtr) {
-	CmdFrame context = *iPtr->cmdFramePtr;
-
-	if (context.type == TCL_LOCATION_BC) {
-	    /*
-	     * Retrieve source information from the bytecode, if possible. If
-	     * the information is retrieved successfully, context.type will be
-	     * TCL_LOCATION_SOURCE and the reference held by
-	     * context.data.eval.path will be counted.
-	     */
-
-	    TclGetSrcInfoForPc(&context);
-	} else if (context.type == TCL_LOCATION_SOURCE) {
-	    /*
-	     * The copy into 'context' up above has created another reference
-	     * to 'context.data.eval.path'; account for it.
-	     */
-
-	    Tcl_IncrRefCount(context.data.eval.path);
-	}
-
-	if (context.type == TCL_LOCATION_SOURCE) {
-	    /*
-	     * We can account for source location within a proc only if the
-	     * proc body was not created by substitution.
-	     * (FIXME: check that this is sane and correct!)
-	     */
-
-	    if (context.line
-		    && (context.nline >= 4) && (context.line[3] >= 0)) {
-		int isNew;
-		CmdFrame *cfPtr = ckalloc(sizeof(CmdFrame));
-		Tcl_HashEntry *hPtr;
-
-		cfPtr->level = -1;
-		cfPtr->type = context.type;
-		cfPtr->line = ckalloc(sizeof(int));
-		cfPtr->line[0] = context.line[3];
-		cfPtr->nline = 1;
-		cfPtr->framePtr = NULL;
-		cfPtr->nextPtr = NULL;
-
-		cfPtr->data.eval.path = context.data.eval.path;
-		Tcl_IncrRefCount(cfPtr->data.eval.path);
-
-		cfPtr->cmd = NULL;
-		cfPtr->len = 0;
-
-		hPtr = Tcl_CreateHashEntry(iPtr->linePBodyPtr,
-			(char *) procPtr, &isNew);
-		Tcl_SetHashValue(hPtr, cfPtr);
-	    }
-
-	    /*
-	     * 'context' is going out of scope; account for the reference that
-	     * it's holding to the path name.
-	     */
-
-	    Tcl_DecrRefCount(context.data.eval.path);
-	    context.data.eval.path = NULL;
-	}
+	TclProcCmdFrameSet(procPtr, 3, 0);
     }
 
     return Tcl_NewMethod(interp, (Tcl_Class) clsPtr, nameObj, flags, typePtr,

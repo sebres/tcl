@@ -27,7 +27,7 @@ static Tcl_Obj *	DisassembleByteCodeObj(Tcl_Interp *interp,
 			    Tcl_Obj *objPtr);
 static int		FormatInstruction(ByteCode *codePtr,
 			    const unsigned char *pc, Tcl_Obj *bufferObj);
-static void		GetLocationInformation(Proc *procPtr,
+static void		GetLocationInformation(ByteCode *codePtr,
 			    Tcl_Obj **fileObjPtr, int *linePtr);
 static void		PrintSourceToObj(Tcl_Obj *appendObj,
 			    const char *stringPtr, int maxChars);
@@ -72,7 +72,7 @@ static const Tcl_ObjType tclInstNameType = {
 
 static void
 GetLocationInformation(
-    Proc *procPtr,		/* What to look up the information for. */
+    ByteCode *codePtr,		/* What to look up the information for. */
     Tcl_Obj **fileObjPtr,	/* Where to write the information about what
 				 * file the code came from. Will be written
 				 * to, either with the object (assume shared!)
@@ -85,11 +85,31 @@ GetLocationInformation(
 				 * either with the line number or with -1 if
 				 * the information is not available. */
 {
-    CmdFrame *cfPtr = TclGetCmdFrameForProcedure(procPtr);
+    Proc *procPtr = codePtr->procPtr;
+    CmdFrame *cfPtr;
 
+    
     *fileObjPtr = NULL;
     *linePtr = -1;
-    if (cfPtr == NULL) {
+    
+    if (!procPtr || !(cfPtr = procPtr->cfPtr)) {
+
+	/* todo: retrive from BC if ready */
+    #if 0
+	BCExtLineInfo *bcLI = TclByteCodeGetELI(codePtr);
+	ExtCmdLoc *eclPtr;
+
+	if (!bcLI || !(eclPtr = bcLI->eclPtr)) {
+	    return;
+	}
+
+	if (eclPtr->nloc) {
+	    *linePtr = eclPtr->loc[0].line[0];
+	}
+	if (eclPtr->type == TCL_LOCATION_SOURCE) {
+	    *fileObjPtr = eclPtr->path;
+	}
+    #endif
 	return;
     }
 
@@ -276,7 +296,7 @@ DisassembleByteCodeObj(
     Tcl_AppendToObj(bufferObj, "  Source ", -1);
     PrintSourceToObj(bufferObj, codePtr->source,
 	    TclMin(codePtr->numSrcBytes, 55));
-    GetLocationInformation(codePtr->procPtr, &fileObj, &line);
+    GetLocationInformation(codePtr, &fileObj, &line);
     if (line > -1 && fileObj != NULL) {
 	Tcl_AppendPrintfToObj(bufferObj, "\n  File \"%s\" Line %d",
 		Tcl_GetString(fileObj), line);
@@ -1219,7 +1239,7 @@ DisassembleByteCodeAsDicts(
      * system if it is available.
      */
 
-    GetLocationInformation(codePtr->procPtr, &file, &line);
+    GetLocationInformation(codePtr, &file, &line);
 
     /*
      * Build the overall result.

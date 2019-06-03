@@ -5455,10 +5455,11 @@ TclNRWhileObjCmd(
  *
  * TclListLines --
  *
- *	???
+ *	Retrieve line(s) inside of given listObj from its source considering
+ *	continuations.
  *
  * Results:
- *	Filled in array of line numbers?
+ *	Last line found, filled in array of line numbers if not NULL.
  *
  * Side effects:
  *	None.
@@ -5466,16 +5467,16 @@ TclNRWhileObjCmd(
  *----------------------------------------------------------------------
  */
 
-void
+int
 TclListLines(
     Tcl_Obj *listObj,		/* Pointer to obj holding a string with list
 				 * structure. Assumed to be valid. Assumed to
 				 * contain n elements. */
     int line,			/* Line the list as a whole starts on. */
     int n,			/* #elements in lines */
-    int *lines,			/* Array of line numbers, to fill. */
+    int *lines,			/* Array of line numbers, to fill (or NULL). */
     Tcl_Obj *const *elems)      /* The list elems as Tcl_Obj*, in need of
-				 * derived continuation data */
+				 * derived continuation data (or NULL) */
 {
     const char *listStr = Tcl_GetString(listObj);
     const char *listHead = listStr;
@@ -5484,26 +5485,27 @@ TclListLines(
     ContLineLoc *clLocPtr = TclContinuationsGet(listObj);
     int *clNext = (clLocPtr ? &clLocPtr->loc[0] : NULL);
 
-    for (i = 0; i < n; i++) {
+    n--;
+    for (i = 0; i <= n; i++) {
 	TclFindElement(NULL, listStr, length, &element, &next, NULL, NULL);
 
-	TclAdvanceLines(&line, listStr, element);
-				/* Leading whitespace */
+	TclAdvanceLines(&line, listStr, element);    /* Leading whitespace */
 	TclAdvanceContinuations(&line, &clNext, element - listHead);
 	if (elems && clNext) {
 	    TclContinuationsEnterDerived(elems[i], element-listHead, clNext);
 	}
-	lines[i] = line;
-	length -= (next - listStr);
-	TclAdvanceLines(&line, element, next);
-				/* Element */
-	listStr = next;
-
-	if (*element == 0) {
+	if (lines) {
+	    lines[i] = line;
+	}
+	if (*element == 0 || i == n) {
 	    /* ASSERT i == n */
 	    break;
 	}
+	length -= (next - listStr);
+	TclAdvanceLines(&line, element, next);	    /* Element */
+	listStr = next;
     }
+    return line;
 }
 
 /*

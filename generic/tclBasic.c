@@ -540,10 +540,8 @@ Tcl_CreateInterp(void)
      */
 
     iPtr->cmdFramePtr = NULL;
-    iPtr->linePBodyPtr = ckalloc(sizeof(Tcl_HashTable));
     iPtr->lineLAPtr = ckalloc(sizeof(Tcl_HashTable));
     iPtr->lineLABCPtr = ckalloc(sizeof(Tcl_HashTable));
-    Tcl_InitHashTable(iPtr->linePBodyPtr, TCL_ONE_WORD_KEYS);
     Tcl_InitHashTable(iPtr->lineLAPtr, TCL_ONE_WORD_KEYS);
     Tcl_InitHashTable(iPtr->lineLABCPtr, TCL_ONE_WORD_KEYS);
     iPtr->scriptCLLocPtr = NULL;
@@ -1583,31 +1581,6 @@ DeleteInterpProc(
      */
 
     TclDeleteLiteralTable(interp, &iPtr->literalTable);
-
-    /*
-     * TIP #280 - Release the arrays for ByteCode/Proc extension, and
-     * contents.
-     */
-
-    for (hPtr = Tcl_FirstHashEntry(iPtr->linePBodyPtr, &search);
-	    hPtr != NULL;
-	    hPtr = Tcl_NextHashEntry(&search)) {
-	CmdFrame *cfPtr = Tcl_GetHashValue(hPtr);
-	Proc *procPtr = (Proc *) Tcl_GetHashKey(iPtr->linePBodyPtr, hPtr);
-
-	procPtr->iPtr = NULL;
-	if (cfPtr) {
-	    if (cfPtr->type == TCL_LOCATION_SOURCE) {
-		Tcl_DecrRefCount(cfPtr->data.eval.path);
-	    }
-	    ckfree(cfPtr->line);
-	    ckfree(cfPtr);
-	}
-	Tcl_DeleteHashEntry(hPtr);
-    }
-    Tcl_DeleteHashTable(iPtr->linePBodyPtr);
-    ckfree(iPtr->linePBodyPtr);
-    iPtr->linePBodyPtr = NULL;
 
     /*
      * Location stack for uplevel/eval/... scripts which were passed through

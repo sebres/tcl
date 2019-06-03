@@ -960,6 +960,8 @@ typedef struct Proc {
     CompiledLocal *lastLocalPtr;/* Pointer to the last allocated local
 				 * variable or NULL if none. This has frame
 				 * index (numCompiledLocals-1). */
+    struct CmdFrame * cfPtr;	/* Holds the location information for proc's 
+				 * body. */
 } Proc;
 
 /*
@@ -2026,11 +2028,7 @@ typedef struct Interp {
 				 * active. */
     int invokeWord;		/* Index of the word in the command which
 				 * is getting compiled. */
-    Tcl_HashTable *linePBodyPtr;/* This table remembers for each statically
-				 * defined procedure the location information
-				 * for its body. It is keyed by the address of
-				 * the Proc structure for a procedure. The
-				 * values are "struct CmdFrame*". */
+    Tcl_HashTable *unused_LPBP;	/* No longer used (was linePBodyPtr) */
     Tcl_HashTable *unused_LBCP;	/* No longer used (was lineBCPtr) */
     Tcl_HashTable *lineLABCPtr;
     Tcl_HashTable *lineLAPtr;	/* This table remembers for each argument of a
@@ -2975,7 +2973,6 @@ MODULE_SCOPE Tcl_Obj *	TclGetBgErrorHandler(Tcl_Interp *interp);
 MODULE_SCOPE int	TclGetChannelFromObj(Tcl_Interp *interp,
 			    Tcl_Obj *objPtr, Tcl_Channel *chanPtr,
 			    int *modePtr, int flags);
-MODULE_SCOPE CmdFrame *	TclGetCmdFrameForProcedure(Proc *procPtr);
 MODULE_SCOPE int	TclGetCompletionCodeFromObj(Tcl_Interp *interp,
 			    Tcl_Obj *value, int *code);
 MODULE_SCOPE int	TclGetNumberFromObj(Tcl_Interp *interp,
@@ -3031,7 +3028,7 @@ MODULE_SCOPE Tcl_Obj *	TclLindexList(Tcl_Interp *interp,
 MODULE_SCOPE Tcl_Obj *	TclLindexFlat(Tcl_Interp *interp, Tcl_Obj *listPtr,
 			    int indexCount, Tcl_Obj *const indexArray[]);
 /* TIP #280 */
-MODULE_SCOPE void	TclListLines(Tcl_Obj *listObj, int line, int n,
+MODULE_SCOPE int	TclListLines(Tcl_Obj *listObj, int line, int n,
 			    int *lines, Tcl_Obj *const *elems);
 MODULE_SCOPE Tcl_Obj *	TclListObjCopy(Tcl_Interp *interp, Tcl_Obj *listPtr);
 MODULE_SCOPE Tcl_Obj *	TclLsetList(Tcl_Interp *interp, Tcl_Obj *listPtr,
@@ -3069,6 +3066,8 @@ MODULE_SCOPE int	TclParseNumber(Tcl_Interp *interp, Tcl_Obj *objPtr,
 MODULE_SCOPE void	TclParseInit(Tcl_Interp *interp, const char *string,
 			    int numBytes, Tcl_Parse *parsePtr);
 MODULE_SCOPE int	TclParseAllWhiteSpace(const char *src, int numBytes);
+MODULE_SCOPE void	TclProcCmdFrameFree(CmdFrame *cfPtr);
+MODULE_SCOPE CmdFrame *	TclProcCmdFrameSet(Proc *procPtr, int lineIdx, int adj);
 MODULE_SCOPE int	TclProcessReturn(Tcl_Interp *interp,
 			    int code, int level, Tcl_Obj *returnOpts);
 MODULE_SCOPE int	TclpObjLstat(Tcl_Obj *pathPtr, Tcl_StatBuf *buf);
