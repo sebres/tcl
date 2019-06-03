@@ -201,15 +201,8 @@ TclCreateLiteral(
 	    globalPtr = globalPtr->nextPtr) {
 	objPtr = globalPtr->objPtr;
 	if (globalPtr->nsPtr == nsPtr) {
-	    /*
-	     * Literals should always have UTF-8 representations... but this
-	     * is not guaranteed so we need to be careful anyway.
-	     *
-	     * https://stackoverflow.com/q/54337750/301832
-	     */
-
 	    int objLength;
-	    char *objBytes = TclGetStringFromObj(objPtr, &objLength);
+	    const char *objBytes = Tcl_GetUtfFromObj(objPtr, &objLength);
 
 	    if ((objLength == length) && ((length == 0)
 		    || ((objBytes[0] == bytes[0])
@@ -607,12 +600,11 @@ TclAddLiteralObj(
 				 * NULL. */
 {
     register LiteralEntry *lPtr;
-    int objIndex;
+    int objIndex = envPtr->literalArrayNext;
 
-    if (envPtr->literalArrayNext >= envPtr->literalArrayEnd) {
+    if (objIndex >= envPtr->literalArrayEnd) {
 	ExpandLocalLiteralArray(envPtr);
     }
-    objIndex = envPtr->literalArrayNext;
     envPtr->literalArrayNext++;
 
     lPtr = &envPtr->literalArrayPtr[objIndex];
@@ -822,7 +814,7 @@ TclReleaseLiteral(
     }
 
     globalTablePtr = &iPtr->literalTable;
-    bytes = TclGetStringFromObj(objPtr, &length);
+    bytes = Tcl_GetUtfFromObj(objPtr, &length);
     index = (HashString(bytes, length) & globalTablePtr->mask);
 
     /*

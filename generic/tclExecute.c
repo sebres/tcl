@@ -778,11 +778,11 @@ static Tcl_NRPostProc   TEBCresume;
  * compiled bytecode for Tcl expressions.
  */
 
-static const Tcl_ObjType exprCodeType = {
+const Tcl_ObjType tclExprCodeType = {
     "exprcode",
     FreeExprCodeInternalRep,	/* freeIntRepProc */
     DupExprCodeInternalRep,	/* dupIntRepProc */
-    NULL,			/* updateStringProc */
+    TclUpdateStringOfByteCode,	/* updateStringProc */
     NULL			/* setFromAnyProc */
 };
 
@@ -1524,7 +1524,7 @@ CompileExprObj(
      * Get the expression ByteCode from the object. If it exists, make sure it
      * is valid in the current context.
      */
-    if (objPtr->typePtr == &exprCodeType) {
+    if (objPtr->typePtr == &tclExprCodeType) {
 	Namespace *namespacePtr = iPtr->varFramePtr->nsPtr;
 
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
@@ -1536,15 +1536,18 @@ CompileExprObj(
 	    FreeExprCodeInternalRep(objPtr);
 	}
     }
-    if (objPtr->typePtr != &exprCodeType) {
+    if (objPtr->typePtr != &tclExprCodeType) {
 	/*
 	 * TIP #280: No invoker (yet) - Expression compilation.
 	 */
 
 	int length;
-	const char *string = TclGetStringFromObj(objPtr, &length);
+	const char *string = Tcl_GetUtfFromObj(objPtr, &length);
 
 	TclInitCompileEnv(interp, &compEnv, string, length, NULL, 0);
+	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	compEnv.strSegPtr->refCount++;
+	
 	TclCompileExpr(interp, string, length, &compEnv, 0);
 
 	/*
@@ -1565,7 +1568,7 @@ CompileExprObj(
 
 	TclEmitOpcode(INST_DONE, &compEnv);
 	TclInitByteCodeObj(objPtr, &compEnv);
-	objPtr->typePtr = &exprCodeType;
+	objPtr->typePtr = &tclExprCodeType;
 	TclFreeCompileEnv(&compEnv);
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
 	if (iPtr->varFramePtr->localCachePtr) {

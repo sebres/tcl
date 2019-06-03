@@ -847,7 +847,10 @@ CompileAssembleObj(
     int status;			/* Status return from Tcl_AssembleCode */
     const char* source;		/* String representation of the source code */
     int sourceLen;		/* Length of the source code in bytes */
+    StringSegment *strSegPtr;
 
+
+    source = Tcl_GetUtfFromObj(objPtr, &sourceLen);
 
     /*
      * Get the expression ByteCode from the object. If it exists, make sure it
@@ -867,18 +870,23 @@ CompileAssembleObj(
 	}
 
 	/*
-	 * Not valid, so free it and regenerate.
+	 * Not valid, so obtain string segment, free code and regenerate.
 	 */
 
+	strSegPtr = codePtr->strSegPtr;
+	strSegPtr->refCount++;
 	FreeAssembleCodeInternalRep(objPtr);
+    } else {
+	strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	strSegPtr->refCount++;
     }
 
     /*
      * Set up the compilation environment, and assemble the code.
      */
 
-    source = TclGetStringFromObj(objPtr, &sourceLen);
     TclInitCompileEnv(interp, &compEnv, source, sourceLen, NULL, 0);
+    compEnv.strSegPtr = strSegPtr;
     status = TclAssembleCode(&compEnv, source, sourceLen, TCL_EVAL_DIRECT);
     if (status != TCL_OK) {
 	/*

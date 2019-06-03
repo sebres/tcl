@@ -707,7 +707,7 @@ const Tcl_ObjType tclByteCodeType = {
     "bytecode",			/* name */
     FreeByteCodeInternalRep,	/* freeIntRepProc */
     DupByteCodeInternalRep,	/* dupIntRepProc */
-    NULL,			/* updateStringProc */
+    TclUpdateStringOfByteCode,	/* updateStringProc */
     SetByteCodeFromAny		/* setFromAnyProc */
 };
 
@@ -716,11 +716,11 @@ const Tcl_ObjType tclByteCodeType = {
  * compiled bytecode for the [subst]itution of Tcl values.
  */
 
-static const Tcl_ObjType substCodeType = {
+const Tcl_ObjType tclSubstCodeType = {
     "substcode",		/* name */
     FreeSubstCodeInternalRep,	/* freeIntRepProc */
     DupByteCodeInternalRep,	/* dupIntRepProc - shared with bytecode */
-    NULL,			/* updateStringProc */
+    TclUpdateStringOfByteCode,	/* updateStringProc */
     NULL,			/* setFromAnyProc */
 };
 
@@ -730,6 +730,327 @@ static const Tcl_ObjType substCodeType = {
 
 #define TclIncrUInt4AtPtr(ptr, delta) \
     TclStoreInt4AtPtr(TclGetUInt4AtPtr(ptr)+(delta), (ptr));
+
+
+void TclFreeStringSegment(StringSegment *strSegPtr) {
+    while (strSegPtr->refCount-- <= 1) {
+	StringSegment *parentPtr = strSegPtr->parentPtr;
+	char *bytes = strSegPtr->bytes.ptr;
+	ckfree(strSegPtr);
+	if (!parentPtr) {
+	    ckfree(bytes);
+	    break;
+	}
+	/* parent reference "recursively" */
+	strSegPtr = parentPtr;
+    }
+}
+
+/*
+ * Code segment facilities:
+ */
+const Tcl_ObjType tclCodeSegmentType;
+
+static void
+DupCodeSegmentInternalRep(
+    Tcl_Obj *srcPtr,		/* Object with internal rep to copy. */
+    Tcl_Obj *copyPtr)		/* Object with internal rep to set. */
+{
+    StringSegment *strSegPtr = srcPtr->internalRep.twoPtrValue.ptr1;
+    copyPtr->typePtr = &tclCodeSegmentType;
+    copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
+    copyPtr->internalRep.twoPtrValue.ptr2 =
+		srcPtr->internalRep.twoPtrValue.ptr2;
+    copyPtr->length = srcPtr->length;
+    strSegPtr->refCount++;
+}
+
+static inline void
+TclObtainObjStringSegmentBytes(
+    register Tcl_Obj *objPtr,	/* Object whose string rep to obtain. */
+    StringSegment *strSegPtr,	/* String segment to obtain bytes from. */
+    size_t offset)		/* Offset of string in segment. */
+{
+    /* segment bytes are still used - copy it */
+    char * bytes = ckalloc(objPtr->length + 1);
+
+    memcpy(bytes, TclGetStringSegmentBytes(strSegPtr) + offset,
+	objPtr->length);
+    bytes[objPtr->length] = '\0';
+    objPtr->bytes = bytes;
+    /* objPtr->length = strSegPtr->length; */
+
+    /* *****todo**** remove this check */
+    if (objPtr->length > 1000) {
+	    Tcl_Panic("unexpected codeSegment 2 string!!!");
+    }
+}
+
+static void
+FreeCodeSegmentInternalRep(
+    register Tcl_Obj *objPtr)	/* Object whose internal rep to free. */
+{
+    StringSegment *strSegPtr = objPtr->internalRep.twoPtrValue.ptr1;
+
+    objPtr->typePtr = NULL;
+
+    /*
+     * If string of object may be still needed, update it right now.
+     */
+    if (objPtr->refCount) {
+	/* rather a type switch (shimmering), string rep may be needed */
+	if (!objPtr->bytes || objPtr->bytes == strSegPtr->bytes.ptr) {
+	    /* only possible on root segment, so check if segment is not shared
+	     * obtain last reference and simply free segment */
+	    if ( strSegPtr->refCount == 1
+	      && strSegPtr->length == objPtr->length
+	    ) {
+		/*
+		 * we don't need to check whether strSegPtr has parent
+		 * or the offset by equal lengths and bytes (pointers)
+		 */
+		objPtr->bytes = strSegPtr->bytes.ptr;
+		ckfree(strSegPtr);
+		return;
+	    }
+
+	    /* segment bytes are still used - copy it */
+	    TclObtainObjStringSegmentBytes(objPtr, strSegPtr,
+		(size_t)objPtr->internalRep.twoPtrValue.ptr2);
+	}
+    } else {
+	/* release object - we don't need string rep at all */
+	if (objPtr->bytes == strSegPtr->bytes.ptr) {
+	    objPtr->bytes = NULL;
+	}
+    }
+
+    /* free reference(s) */
+    TclFreeStringSegment(strSegPtr);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * UpdateStringOfCodeSegment --
+ *
+ *	Update the string representation for a code segment object.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	The object's string is set to a valid NUL-terminated string that is
+ *	copied from the code segment. Use Tcl_GetUtfFromObj to avoid that.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+UpdateStringOfCodeSegment(
+    Tcl_Obj *objPtr)		/* Object whose string rep to update */
+{
+    StringSegment *strSegPtr = objPtr->internalRep.twoPtrValue.ptr1;
+    size_t offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
+
+    char *bytes = TclGetStringSegmentBytes(strSegPtr) + offset;
+
+    /*
+     * If we can obtain the source string from code-segment (whole bytes of the
+     * top level code segment is NTS), use it directly (don't copy it).
+     */
+    if (!bytes[objPtr->length]) {
+	/* use it directly (as long as object retains segment reference) */
+	objPtr->bytes = bytes;
+    } else {
+	/* obtain a copy to bytes (we need NTS for backwards compatibility) */
+	TclObtainObjStringSegmentBytes(objPtr, strSegPtr, offset);
+    }
+}
+
+const Tcl_ObjType tclCodeSegmentType = {
+    "bytecodesegment",		/* name */
+    FreeCodeSegmentInternalRep,	/* freeIntRepProc */
+    DupCodeSegmentInternalRep,	/* dupIntRepProc */
+    UpdateStringOfCodeSegment,	/* updateStringProc */
+    NULL			/* setFromAnyProc */
+};
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclNewCodeSegmentObj --
+ *
+ *	This function creates a new object which string representation is
+ *	normally a part of byte-code and it initializes object from the
+ *	byte pointer and length arguments without a copy.
+ *
+ * Results:
+ *	A newly created object is returned that has ref count zero.
+ *
+ * Side effects:
+ *	The new object's internal representation will be set to given part
+ *	offset and of the length starting from offset. This is basically not
+ *	a C-style NUL-terminated string.
+ *
+ *----------------------------------------------------------------------
+ */
+
+Tcl_Obj *
+TclNewCodeSegmentObj(
+    StringSegment *strSegPtr,	/* Points to string segment to share. */
+    const char *bytes,		/* Points to the first of the length bytes
+				 * used to initialize the new object. */
+    unsigned long length)	/* The length (in bytes) of "bytes" string
+				 * when initializing the new object. */
+{
+    register Tcl_Obj *objPtr;
+    size_t offset = 0;
+
+
+    TclNewObj(objPtr);
+
+    if (strSegPtr) {
+	const char *segBytes = TclGetStringSegmentBytes(strSegPtr);
+	offset = bytes - segBytes;
+	if (offset) {
+	    if (strSegPtr->parentPtr) {
+		strSegPtr = strSegPtr->parentPtr;
+	    }
+	    assert(offset < segBytes + strSegPtr->length);
+	}
+	strSegPtr->refCount++;
+    } else {
+	strSegPtr = ckalloc(sizeof(StringSegment));
+	strSegPtr->refCount = 1;
+	strSegPtr->parentPtr = NULL;
+	strSegPtr->bytes.ptr = (char *)bytes;
+	strSegPtr->length = length;
+	strSegPtr->line = 0;
+    }
+
+    objPtr->bytes = NULL;
+    objPtr->length = length;
+    objPtr->typePtr = &tclCodeSegmentType;
+    objPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
+    objPtr->internalRep.twoPtrValue.ptr2 = (void *)offset;
+
+    return objPtr;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclUpdateStringOfByteCode --
+ *
+ *	Update the string representation for any byte code object. Note:
+ *	The handle of this procedure used also to distinguish byte code objects
+ *	in order to avoid generation of new NTS representation.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	The object's string is set to a valid NUL-terminated string that is
+ *	copied from the code segment. Use Tcl_GetUtfFromObj to avoid that.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TclUpdateStringOfByteCode(
+    Tcl_Obj *objPtr)		/* Object whose string rep to update */
+{
+    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
+    StringSegment *strSegPtr = codePtr->strSegPtr;
+
+    /*
+     * If we can obtain the source string from code-segment (whole bytes of the
+     * top level code segment is NTS), use it directly (don't copy it).
+     */
+    if (csegPtr && !csegPtr->parentPtr) {
+	/* use it directly as reference (as long as object retains codeSegment) */
+	objPtr->bytes = csegPtr->bytes;
+	objPtr->length = csegPtr->length;
+    } else {
+	/* use it directly as reference (as long as object retains codeSegment) */
+	char * bytes = ckalloc(codePtr->numSrcBytes + 1);
+
+	memcpy(bytes, codePtr->source, codePtr->numSrcBytes);
+	bytes[codePtr->numSrcBytes] = '\0';
+	objPtr->bytes = bytes;
+	objPtr->length = codePtr->numSrcBytes;
+
+	/* *****todo**** remove this check */
+	if (objPtr->length > 1000) {
+	    Tcl_Panic("unexpected byteCode 2 string!!!");
+	}
+    }
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclCopyByteCodeObject --
+ *
+ *	Copy the part of internal representation of code segment for any type
+ *	of byte code object.
+ *
+ * Results:
+ *	A newly created object is returned that has ref count zero.
+ *
+ * Side effects:
+ *	The refCount of related segment may be incremented after this operation.
+ *
+ *----------------------------------------------------------------------
+ */
+
+Tcl_Obj *
+TclCopyByteCodeObject(
+    Tcl_Obj *objPtr)		/* Object with internal rep to copy. */
+{
+    const char *bytes;
+    int length;
+    Tcl_Obj *cpyPtr;
+    StringSegment *strSegPtr = TclGetStringSegmentFromObj(objPtr);
+
+    bytes = Tcl_GetUtfFromObj(objPtr, &length);
+    cpyPtr = TclNewCodeSegmentObj(strSegPtr, bytes, length);
+
+    /*
+     * TIP #280.
+     * Ensure that the continuation line data for the original body is
+     * not lost and applies to the new body as well.
+     */
+
+    TclContinuationsCopy(cpyPtr, objPtr);
+
+    return cpyPtr;
+}
+
+StringSegment *
+TclGetStringSegmentFromObj(
+    Tcl_Obj *objPtr)
+{
+    if (objPtr->typePtr == &tclCodeSegmentType) {
+    	/* CodeSegment */
+	return (StringSegment *)objPtr->internalRep.twoPtrValue.ptr1;
+    }
+
+    if (objPtr->typePtr
+     && (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
+    ) {
+	/* ByteCode */
+	ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
+	return codePtr->strSegPtr;
+    }
+
+    /* *****todo**** rewrite this - wrap obj to a string segment or return new (rather impossible because of bytes sharing & offsets) */
+    if (objPtr->length > 1000) {
+	Tcl_Panic("unexpected, TclGetStringSegmentFromObj not yet implemented for %s!!!", objPtr->typePtr ? objPtr->typePtr->name : "NONE");
+    }
+    return NULL;
+}
 
 /*
  *----------------------------------------------------------------------
@@ -783,7 +1104,7 @@ TclSetByteCodeFromAny(
     }
 #endif
 
-    stringPtr = TclGetStringFromObj(objPtr, &length);
+    stringPtr = Tcl_GetUtfFromObj(objPtr, &length);
 
     /*
      * TIP #280: Pick up the CmdFrame in which the BC compiler was invoked and
@@ -793,6 +1114,9 @@ TclSetByteCodeFromAny(
 
     TclInitCompileEnv(interp, &compEnv, stringPtr, length,
 	    iPtr->invokeCmdFramePtr, iPtr->invokeWord);
+    compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
+    compEnv.strSegPtr->refCount++;
+
 
     /*
      * Now we check if we have data about invisible continuation lines for the
@@ -811,6 +1135,7 @@ TclSetByteCodeFromAny(
 	compEnv.clNext = &clLocPtr->loc[0];
     }
 
+    //!!!!!! printf("**** byte-code : %d, %p, %.80s\n", clLocPtr != NULL, objPtr, Tcl_GetString(objPtr));
     TclCompileScript(interp, stringPtr, length, &compEnv);
 
     /*
@@ -834,6 +1159,8 @@ TclSetByteCodeFromAny(
 	iPtr->compiledProcPtr = procPtr;
 	TclInitCompileEnv(interp, &compEnv, stringPtr, length,
 		iPtr->invokeCmdFramePtr, iPtr->invokeWord);
+	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	compEnv.strSegPtr->refCount++;
 	if (clLocPtr) {
 	    compEnv.clNext = &clLocPtr->loc[0];
 	}
@@ -1288,7 +1615,7 @@ CompileSubstObj(
     Interp *iPtr = (Interp *) interp;
     ByteCode *codePtr = NULL;
 
-    if (objPtr->typePtr == &substCodeType) {
+    if (objPtr->typePtr == &tclSubstCodeType) {
 	Namespace *nsPtr = iPtr->varFramePtr->nsPtr;
 
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
@@ -1302,19 +1629,21 @@ CompileSubstObj(
 	    FreeSubstCodeInternalRep(objPtr);
 	}
     }
-    if (objPtr->typePtr != &substCodeType) {
+    if (objPtr->typePtr != &tclSubstCodeType) {
 	CompileEnv compEnv;
 	int numBytes;
-	const char *bytes = Tcl_GetStringFromObj(objPtr, &numBytes);
+	const char *bytes = Tcl_GetUtfFromObj(objPtr, &numBytes);
 
 	/* TODO: Check for more TIP 280 */
 	TclInitCompileEnv(interp, &compEnv, bytes, numBytes, NULL, 0);
 
 	TclSubstCompile(interp, bytes, numBytes, flags, 1, &compEnv);
+	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	compEnv.strSegPtr->refCount++;
 
 	TclEmitOpcode(INST_DONE, &compEnv);
 	TclInitByteCodeObj(objPtr, &compEnv);
-	objPtr->typePtr = &substCodeType;
+	objPtr->typePtr = &tclSubstCodeType;
 	TclFreeCompileEnv(&compEnv);
 
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
@@ -1422,6 +1751,7 @@ TclInitCompileEnv(
     envPtr->iPtr = iPtr;
     envPtr->source = stringPtr;
     envPtr->numSrcBytes = numBytes;
+    envPtr->strSegPtr = NULL;
     envPtr->procPtr = iPtr->compiledProcPtr;
     iPtr->compiledProcPtr = NULL;
     envPtr->numCommands = 0;
@@ -1666,6 +1996,9 @@ TclFreeCompileEnv(
 	ReleaseCmdWordData(envPtr->extCmdMapPtr);
 	envPtr->extCmdMapPtr = NULL;
     }
+    if (envPtr->strSegPtr) {
+	TclFreeStringSegment(envPtr->strSegPtr);
+    }
 }
 
 /*
@@ -1833,7 +2166,7 @@ TclCompileInvocation(
 	    continue;
 	}
 
-	objIdx = TclRegisterNewLiteral(envPtr,
+	objIdx = TclRegisterCodeSegmentLiteral(envPtr,
 		tokenPtr[1].start, tokenPtr[1].size);
 	if (envPtr->clNext) {
 	    TclContinuationsEnterDerived(TclFetchLiteral(envPtr, objIdx),
@@ -2831,8 +3164,7 @@ TclInitByteCodeObj(
     codePtr->objArrayPtr = (Tcl_Obj **) p;
     for (i = 0;  i < numLitObjects;  i++) {
 	Tcl_Obj *fetched = TclFetchLiteral(envPtr, i);
-
-	if (objPtr == fetched) {
+	if (fetched == objPtr) {
 	    /*
 	     * Prevent circular reference where the bytecode intrep of
 	     * a value contains a literal which is that same value.
@@ -2844,15 +3176,12 @@ TclInitByteCodeObj(
              * can be sure we do not have any lingering cycles hiding in
 	     * the intrep.
 	     */
-	    int numBytes;
-	    const char *bytes = Tcl_GetStringFromObj(objPtr, &numBytes);
-
-	    codePtr->objArrayPtr[i] = Tcl_NewStringObj(bytes, numBytes);
-	    Tcl_IncrRefCount(codePtr->objArrayPtr[i]);
+	    fetched = TclCopyByteCodeObject(fetched);
+	    Tcl_IncrRefCount(fetched);
+	    /* Release old fetched (it calls Tcl_DecrRefCount() for us) */
 	    TclReleaseLiteral((Tcl_Interp *)iPtr, objPtr);
-	} else {
-	    codePtr->objArrayPtr[i] = fetched;
 	}
+	codePtr->objArrayPtr[i] = fetched;
     }
 
     p += TCL_ALIGN(objArrayBytes);	/* align exception range array */

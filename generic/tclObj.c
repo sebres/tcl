@@ -15,6 +15,7 @@
  */
 
 #include "tclInt.h"
+#include "tclCompile.h"
 #include "tommath.h"
 #include <math.h>
 
@@ -577,6 +578,7 @@ TclContinuationsEnter(
     Tcl_HashEntry *hPtr =
 	    Tcl_CreateHashEntry(tsdPtr->lineCLPtr, objPtr, &newEntry);
     ContLineLoc *clLocPtr = ckalloc(sizeof(ContLineLoc) + num*sizeof(int));
+    //!!!!!! printf("++++ cont-enter: %d, %p, %.80s\n", newEntry, objPtr, Tcl_GetString(objPtr));
 
     if (!newEntry) {
 	/*
@@ -663,7 +665,7 @@ TclContinuationsEnterDerived(
      * better way which doesn't shimmer?)
      */
 
-    TclGetStringFromObj(objPtr, &length);
+    Tcl_GetUtfFromObj(objPtr, &length);
     end = start + length;       /* First char after the word */
 
     /*
@@ -1695,6 +1697,69 @@ Tcl_GetStringFromObj(
 	*lengthPtr = objPtr->length;
     }
     return objPtr->bytes;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Tcl_GetUtfFromObj --
+ *
+ *	Returns the non-NTS utf-8 string representation's pointer and length
+ *	for an object.
+ *
+ * Results:
+ *	Returns a pointer to the unalterable string representation of objPtr,
+ *	which in opposite to Tcl_GetStringFromObj (Tcl_GetString) is not 
+ *	guaranteed null-terminated string (NTS) string for example could be
+ *	a part of some buffer (or code).
+ *
+ * Side effects:
+ *	May call the object's updateStringProc to update the string
+ *	representation from the internal representation.
+ *
+ *----------------------------------------------------------------------
+ */
+
+const char *
+Tcl_GetUtfFromObj(
+    register Tcl_Obj *objPtr,	/* Object whose string rep byte pointer should
+				 * be returned. */
+    register int *lengthPtr)	/* The location where the length (in bytes)
+				 * should be stored. */
+{
+    const char *bytes;
+
+    /* 
+     * Prefer direct string rep, use type-related mechanisms to obtain it.
+     */
+    if (objPtr->typePtr == &tclCodeSegmentType) {
+	*lengthPtr = (int)objPtr->internalRep.ptrAndLongRep.value;
+	return (const char *)objPtr->internalRep.ptrAndLongRep.ptr;
+    }
+
+    if (objPtr->typePtr
+     && (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
+    ) {
+	/* ByteCode */
+	ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
+	*lengthPtr = codePtr->numSrcBytes;
+	return codePtr->source;
+    }
+
+    /*
+     * Already available.
+     */
+    if ((bytes = objPtr->bytes)) {
+	*lengthPtr = objPtr->length;
+	return bytes;
+    }
+
+    /*
+     * Fallback to retrieve string representation.
+     */
+    bytes = Tcl_GetString(objPtr);
+    *lengthPtr = objPtr->length;
+    return bytes;
 }
 
 /*

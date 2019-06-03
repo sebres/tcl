@@ -201,6 +201,30 @@ typedef struct ExtCmdLoc {
     int nuloc;			/* Number of used entries in 'loc'. */
 } ExtCmdLoc;
 
+typedef struct StringSegment StringSegment;
+
+typedef struct StringSegment {
+    TCL_HASH_TYPE hash;		/* Hash of this string segment. */
+    size_t refCount;		/* Count all references of this segment. */
+    StringSegment *parentPtr;	/* Parent segment (sharing string memory). */
+    union {
+	char *ptr;		/* Pointer to string (parentPtr == NULL) or */
+	size_t offset;		/* offset to string part (parentPtr != NULL). */
+    } bytes;
+    int length;			/* Size of string in bytes. */
+    unsigned int line;		/* Line in source this object can be found. */
+} StringSegment;
+
+#define TclGetStringSegmentBytes(strSegPtr) \
+	    (!(strSegPtr)->parentPtr ? (strSegPtr)->bytes.ptr : \
+		(strSegPtr)->parentPtr->bytes.ptr + (strSegPtr)->bytes.offset)
+
+MODULE_SCOPE Tcl_Obj *	TclNewCodeSegmentObj(StringSegment *strSegPtr,
+			    const char *bytes, unsigned long length);
+
+MODULE_SCOPE StringSegment *TclGetStringSegmentFromObj(Tcl_Obj *objPtr);
+MODULE_SCOPE void	TclFreeStringSegment(StringSegment *strSegPtr);
+
 /*
  * CompileProcs need the ability to record information during compilation that
  * can be used by bytecode instructions during execution. The AuxData
@@ -290,6 +314,8 @@ typedef struct CompileEnv {
 				 * owned by the CompileEnv and must not be
 				 * freed or changed by it. */
     int numSrcBytes;		/* Number of bytes in source. */
+    StringSegment *strSegPtr;	/* Top level code segment compiling currently,
+				 * mostly conforms with source/numSrcBytes. */
     Proc *procPtr;		/* If a procedure is being compiled, a pointer
 				 * to its Proc structure; otherwise NULL. Used
 				 * to compile local variables. Set from
@@ -439,6 +465,8 @@ typedef struct ByteCode {
 				 * was compiled. Note that this pointer is not
 				 * owned by the ByteCode and must not be freed
 				 * or modified by it. */
+    StringSegment *strSegPtr;	/* Top level code segment of the byte code,
+				 * mostly conforms with source/numSrcBytes. */
     Proc *procPtr;		/* If the ByteCode was compiled from a
 				 * procedure body, this is a pointer to its
 				 * Proc structure; otherwise NULL. This
@@ -1270,6 +1298,10 @@ MODULE_SCOPE int	TclPushProcCallFrame(ClientData clientData,
 
 #define TclRegisterNewCmdLiteral(envPtr, bytes, length) \
     TclRegisterLiteral(envPtr, (char *)(bytes), length, LITERAL_CMD_NAME)
+
+#define TclRegisterCodeSegmentLiteral(envPtr, bytes, length) \
+    TclAddLiteralObj((envPtr), \
+	TclNewCodeSegmentObj(envPtr->strSegPtr, (bytes), (length)), 0)
 
 /*
  * Macro used to manually adjust the stack requirements; used in cases where

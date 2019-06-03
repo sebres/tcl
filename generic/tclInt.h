@@ -2681,13 +2681,16 @@ MODULE_SCOPE const Tcl_ObjType tclBignumType;
 MODULE_SCOPE const Tcl_ObjType tclBooleanType;
 MODULE_SCOPE const Tcl_ObjType tclByteArrayType;
 MODULE_SCOPE const Tcl_ObjType tclByteCodeType;
+MODULE_SCOPE const Tcl_ObjType tclCodeSegmentType;
 MODULE_SCOPE const Tcl_ObjType tclDoubleType;
 MODULE_SCOPE const Tcl_ObjType tclEndOffsetType;
+MODULE_SCOPE const Tcl_ObjType tclExprCodeType;
 MODULE_SCOPE const Tcl_ObjType tclIntType;
 MODULE_SCOPE const Tcl_ObjType tclListType;
 MODULE_SCOPE const Tcl_ObjType tclDictType;
 MODULE_SCOPE const Tcl_ObjType tclProcBodyType;
 MODULE_SCOPE const Tcl_ObjType tclStringType;
+MODULE_SCOPE const Tcl_ObjType tclSubstCodeType;
 MODULE_SCOPE const Tcl_ObjType tclArraySearchType;
 MODULE_SCOPE const Tcl_ObjType tclEnsembleCmdType;
 #ifndef TCL_WIDE_INT_IS_LONG
@@ -3296,6 +3299,10 @@ MODULE_SCOPE Tcl_Obj *	TclDictWithInit(Tcl_Interp *interp, Tcl_Obj *dictPtr,
 MODULE_SCOPE int	Tcl_DisassembleObjCmd(ClientData clientData,
 			    Tcl_Interp *interp, int objc,
 			    Tcl_Obj *const objv[]);
+
+MODULE_SCOPE const char * Tcl_GetUtfFromObj(Tcl_Obj *objPtr, int *lengthPtr);
+MODULE_SCOPE void	TclUpdateStringOfByteCode(Tcl_Obj *objPtr);
+MODULE_SCOPE Tcl_Obj *	TclCopyByteCodeObject(Tcl_Obj *objPtr);
 
 /* Assemble command function */
 MODULE_SCOPE int	Tcl_AssembleObjCmd(ClientData clientData,
