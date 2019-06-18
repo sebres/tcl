@@ -751,7 +751,6 @@ static Tcl_Obj *	ExecuteExtendedBinaryMathOp(Tcl_Interp *interp,
 			    Tcl_Obj *valuePtr, Tcl_Obj *value2Ptr);
 static Tcl_Obj *	ExecuteExtendedUnaryMathOp(int opcode,
 			    Tcl_Obj *valuePtr);
-static void		FreeExprCodeInternalRep(Tcl_Obj *objPtr);
 static ExceptionRange *	GetExceptRangeForPc(const unsigned char *pc,
 			    int searchMode, ByteCode *codePtr);
 static const char *	GetSrcInfoForPc(const unsigned char *pc,
@@ -780,7 +779,7 @@ static Tcl_NRPostProc   TEBCresume;
 
 const Tcl_ObjType tclExprCodeType = {
     "exprcode",
-    FreeExprCodeInternalRep,	/* freeIntRepProc */
+    TclFreeByteCodeInternalRep,	/* freeIntRepProc */
     DupExprCodeInternalRep,	/* dupIntRepProc */
     TclUpdateStringOfByteCode,	/* updateStringProc */
     NULL			/* setFromAnyProc */
@@ -1533,7 +1532,7 @@ CompileExprObj(
 		|| (codePtr->nsPtr != namespacePtr)
 		|| (codePtr->nsEpoch != namespacePtr->resolverEpoch)
 		|| (codePtr->localCachePtr != iPtr->varFramePtr->localCachePtr)) {
-	    FreeExprCodeInternalRep(objPtr);
+	    TclInvalidateByteCodeInternalRep(objPtr);
 	}
     }
     if (objPtr->typePtr != &tclExprCodeType) {
@@ -1547,7 +1546,7 @@ CompileExprObj(
 	TclInitCompileEnv(interp, &compEnv, string, length, NULL, 0);
 	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
 	compEnv.strSegPtr->refCount++;
-	
+
 	TclCompileExpr(interp, string, length, &compEnv, 0);
 
 	/*
@@ -1618,36 +1617,6 @@ DupExprCodeInternalRep(
     Tcl_Obj *copyPtr)
 {
     return;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * FreeExprCodeInternalRep --
- *
- *	Part of the Tcl object type implementation for Tcl expression
- *	bytecode. Frees the storage allocated to hold the internal rep, unless
- *	ref counts indicate bytecode execution is still in progress.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	May free allocated memory. Leaves objPtr untyped.
- *
- *----------------------------------------------------------------------
- */
-
-static void
-FreeExprCodeInternalRep(
-    Tcl_Obj *objPtr)
-{
-    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
-
-    objPtr->typePtr = NULL;
-    if (codePtr->refCount-- <= 1) {
-	TclCleanupByteCode(codePtr);
-    }
 }
 
 /*
@@ -8146,9 +8115,7 @@ TEBCresume(
     }
 
     iPtr->cmdFramePtr = bcFramePtr->nextPtr;
-    if (codePtr->refCount-- <= 1) {
-	TclCleanupByteCode(codePtr);
-    }
+    TclReleaseByteCode(codePtr);
     TclStackFree(interp, TD);	/* free my stack */
 
     return result;

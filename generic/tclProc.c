@@ -241,7 +241,7 @@ Tcl_ProcObjCmd(
 	 * The argument list is just "args"; check the body
 	 */
 
-	procBody = Tcl_GetStringFromObj(objv[3], &numBytes);
+	procBody = Tcl_GetUtfFromObj(objv[3], &numBytes);
 	if (TclParseAllWhiteSpace(procBody, numBytes) < numBytes) {
 	    goto done;
 	}
@@ -1833,7 +1833,7 @@ TclProcCompileProc(
 	    codePtr->compileEpoch = iPtr->compileEpoch;
 	    codePtr->nsPtr = nsPtr;
 	} else {
-	    TclFreeIntRep(bodyPtr);
+	    TclInvalidateByteCodeInternalRep(bodyPtr);
 	}
     }
 

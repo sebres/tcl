@@ -1194,8 +1194,6 @@ CloneProcedureMethod(
      */
 
     bodyObj = Tcl_DuplicateObj(pmPtr->procPtr->bodyPtr);
-    Tcl_GetString(bodyObj);
-    TclFreeIntRep(bodyObj);
 
     /*
      * Create the actual copy of the method record, manufacturing a new proc

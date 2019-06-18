@@ -1846,7 +1846,7 @@ SetListFromAny(
 	}
     } else {
 	int estCount, length;
-	const char *limit, *nextElem = TclGetStringFromObj(objPtr, &length);
+	const char *limit, *nextElem = Tcl_GetUtfFromObj(objPtr, &length);
 
 	/*
 	 * Allocate enough space to hold a (Tcl_Obj *) for each

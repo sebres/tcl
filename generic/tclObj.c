@@ -18,6 +18,7 @@
 #include "tclCompile.h"
 #include "tommath.h"
 #include <math.h>
+#include <assert.h>
 
 /*
  * Table of all object types.
@@ -1420,8 +1421,27 @@ void
 TclFreeObj(
     register Tcl_Obj *objPtr)	/* The object to be freed. */
 {
+    const Tcl_ObjType *typePtr = objPtr->typePtr;
+
+    if (objPtr->length == 40) {
+	int i = 0;
+	i++;
+    }
     /*
-     * Invalidate the string rep first so we can use the bytes value for our
+     * Firstly check special cases where string rep could be shared with
+     * objects internal representation,
+     */
+    if ( typePtr == &tclCodeSegmentType
+      || (typePtr && typePtr->freeIntRepProc == TclFreeByteCodeInternalRep)
+    ) {
+	/* signal the object will be deleted and free it */
+	objPtr->typePtr = NULL;
+	typePtr->freeIntRepProc(objPtr);
+	typePtr = NULL;
+    }
+
+    /*
+     * Then invalidate the string rep so we can use the bytes value for our
      * pointer chain, and signal an obj deletion (as opposed to shimmering)
      * with 'length == -1'.
      */
@@ -1429,7 +1449,7 @@ TclFreeObj(
     TclInvalidateStringRep(objPtr);
     objPtr->length = -1;
 
-    if (!objPtr->typePtr || !objPtr->typePtr->freeIntRepProc) {
+    if (!typePtr || !typePtr->freeIntRepProc) {
 	/*
 	 * objPtr can be freed safely, as it will not attempt to free any
 	 * other objects: it will not cause recursive calls to this function.
@@ -1634,6 +1654,9 @@ Tcl_GetString(
 	return objPtr->bytes;
     }
 
+    /* obscure case no string rep and no object type. */
+    assert(objPtr->typePtr != NULL);
+
     /*
      * Note we do not check for objPtr->typePtr == NULL.  An invariant of
      * a properly maintained Tcl_Obj is that at least  one of objPtr->bytes
@@ -1733,8 +1756,11 @@ Tcl_GetUtfFromObj(
      * Prefer direct string rep, use type-related mechanisms to obtain it.
      */
     if (objPtr->typePtr == &tclCodeSegmentType) {
-	*lengthPtr = (int)objPtr->internalRep.ptrAndLongRep.value;
-	return (const char *)objPtr->internalRep.ptrAndLongRep.ptr;
+    	StringSegment *strSegPtr = objPtr->internalRep.twoPtrValue.ptr1;
+    	size_t offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
+	*lengthPtr = (int)objPtr->length;
+	bytes = (const char *)TclGetStringSegmentBytes(strSegPtr) + offset;
+	return bytes;
     }
 
     if (objPtr->typePtr

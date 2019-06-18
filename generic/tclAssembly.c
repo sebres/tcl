@@ -279,7 +279,6 @@ static int		CreateMirrorJumpTable(AssemblyEnv* assemEnvPtr,
 static int		FindLocalVar(AssemblyEnv* envPtr,
 			    Tcl_Token** tokenPtrPtr);
 static int		FinishAssembly(AssemblyEnv*);
-static void		FreeAssembleCodeInternalRep(Tcl_Obj *objPtr);
 static void		FreeAssemblyEnv(AssemblyEnv*);
 static int		GetBooleanOperand(AssemblyEnv*, Tcl_Token**, int*);
 static int		GetListIndexOperand(AssemblyEnv*, Tcl_Token**, int*);
@@ -319,7 +318,7 @@ static void		UnstackExpiredCatches(CompileEnv*, BasicBlock*, int,
 
 static const Tcl_ObjType assembleCodeType = {
     "assemblecode",
-    FreeAssembleCodeInternalRep, /* freeIntRepProc */
+    TclFreeByteCodeInternalRep,  /* freeIntRepProc */
     DupAssembleCodeInternalRep,	 /* dupIntRepProc */
     NULL,			 /* updateStringProc */
     NULL			 /* setFromAnyProc */
@@ -875,7 +874,7 @@ CompileAssembleObj(
 
 	strSegPtr = codePtr->strSegPtr;
 	strSegPtr->refCount++;
-	FreeAssembleCodeInternalRep(objPtr);
+	TclInvalidateByteCodeInternalRep(objPtr);
     } else {
 	strSegPtr = TclGetStringSegmentFromObj(objPtr);
 	strSegPtr->refCount++;
@@ -4318,37 +4317,6 @@ DupAssembleCodeInternalRep(
     (void)srcPtr;
     (void)copyPtr;
     return;
-}
-
-/*
- *-----------------------------------------------------------------------------
- *
- * FreeAssembleCodeInternalRep --
- *
- *	Part of the Tcl object type implementation for Tcl expression
- *	bytecode. Frees the storage allocated to hold the internal rep, unless
- *	ref counts indicate bytecode execution is still in progress.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	May free allocated memory. Leaves objPtr untyped.
- *
- *-----------------------------------------------------------------------------
- */
-
-static void
-FreeAssembleCodeInternalRep(
-    Tcl_Obj *objPtr)
-{
-    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
-
-    codePtr->refCount--;
-    if (codePtr->refCount <= 0) {
-	TclCleanupByteCode(codePtr);
-    }
-    objPtr->typePtr = NULL;
 }
 
 /*
