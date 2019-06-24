@@ -932,6 +932,7 @@ TclNewCodeSegmentObj(
 
     TclNewObj(objPtr);
 
+    assert(bytes != NULL);
     if (strSegPtr) {
 	const char *segBytes = TclGetStringSegmentBytes(strSegPtr);
 	offset = bytes - segBytes;
@@ -1060,6 +1061,7 @@ TclGetStringSegmentFromObj(
 
 wrapObj:
 	/* No type, wrap it to tclCodeSegmentType*/
+	assert(objPtr->bytes != NULL);
 	strSegPtr = ckalloc(sizeof(StringSegment));
 
 	strSegPtr->refCount = 1;
@@ -1083,6 +1085,7 @@ wrapObj:
     }
 
 #if 1
+    TclGetString(objPtr);
     TclFreeIntRep(objPtr);
     goto wrapObj;
 #else
