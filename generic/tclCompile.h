@@ -1275,6 +1275,7 @@ MODULE_SCOPE int	TclPushProcCallFrame(ClientData clientData,
 #define LITERAL_ON_HEAP		0x01
 #define LITERAL_CMD_NAME	0x02
 #define LITERAL_UNSHARED	0x04
+#define LITERAL_CODE_SEGMENT	0x08
 
 /*
  * Form of TclRegisterLiteral with flags == 0. In that case, it is safe to
@@ -1300,8 +1301,7 @@ MODULE_SCOPE int	TclPushProcCallFrame(ClientData clientData,
     TclRegisterLiteral(envPtr, (char *)(bytes), length, LITERAL_CMD_NAME)
 
 #define TclRegisterCodeSegmentLiteral(envPtr, bytes, length) \
-    TclAddLiteralObj((envPtr), \
-	TclNewCodeSegmentObj(envPtr->strSegPtr, (bytes), (length)), 0)
+    TclRegisterLiteral(envPtr, (char *)(bytes), length, LITERAL_CODE_SEGMENT)
 
 /*
  * Macro used to manually adjust the stack requirements; used in cases where

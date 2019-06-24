@@ -172,8 +172,9 @@ TclDeleteLiteralTable(
  */
 
 Tcl_Obj *
-TclCreateLiteral(
+TclCreateLiteralEx(
     Interp *iPtr,
+    CompileEnv *envPtr,
     char *bytes,		/* The start of the string. Note that this is
 				 * not a NUL-terminated string. */
     int length,			/* Number of bytes in the string. */
@@ -237,12 +238,16 @@ TclCreateLiteral(
      * table.
      */
 
-    TclNewObj(objPtr);
-    if ((flags & LITERAL_ON_HEAP)) {
-	objPtr->bytes = bytes;
-	objPtr->length = length;
+    if (envPtr && (flags & LITERAL_CODE_SEGMENT)) {
+	objPtr = TclNewCodeSegmentObj(envPtr->strSegPtr, bytes, length);
     } else {
-	TclInitStringRep(objPtr, bytes, length);
+	TclNewObj(objPtr);
+	if ((flags & LITERAL_ON_HEAP)) {
+	    objPtr->bytes = bytes;
+	    objPtr->length = length;
+	} else {
+	    TclInitStringRep(objPtr, bytes, length);
+	}
     }
 
     if ((flags & LITERAL_UNSHARED)) {
@@ -314,6 +319,23 @@ TclCreateLiteral(
     }
     *newPtr = 1;
     return objPtr;
+}
+
+Tcl_Obj *
+TclCreateLiteral(
+    Interp *iPtr,
+    char *bytes,		/* The start of the string. Note that this is
+				 * not a NUL-terminated string. */
+    int length,			/* Number of bytes in the string. */
+    unsigned hash,		/* The string's hash. If -1, it will be
+				 * computed here. */
+    int *newPtr,
+    Namespace *nsPtr,
+    int flags,
+    LiteralEntry **globalPtrPtr)
+{
+    return TclCreateLiteralEx(iPtr, NULL, bytes, length, hash, newPtr, nsPtr,
+		flags, globalPtrPtr);
 }
 
 /*
@@ -408,10 +430,11 @@ TclRegisterLiteral(
     localHash = (hash & localTablePtr->mask);
     for (localPtr=localTablePtr->buckets[localHash] ; localPtr!=NULL;
 	    localPtr = localPtr->nextPtr) {
-	objPtr = localPtr->objPtr;
-	if ((objPtr->length == length) && ((length == 0)
-		|| ((objPtr->bytes[0] == bytes[0])
-		&& (memcmp(objPtr->bytes, bytes, (unsigned) length) == 0)))) {
+	int objLength;
+	const char *objBytes = Tcl_GetUtfFromObj(localPtr->objPtr, &objLength);
+	if ((objLength == length) && ((length == 0)
+		|| ((objBytes[0] == bytes[0])
+		&& (memcmp(objBytes, bytes, (unsigned) length) == 0)))) {
 	    if ((flags & LITERAL_ON_HEAP)) {
 		ckfree(bytes);
 	    }
@@ -419,16 +442,22 @@ TclRegisterLiteral(
 #ifdef TCL_COMPILE_DEBUG
 	    TclVerifyLocalLiteralTable(envPtr);
 #endif /*TCL_COMPILE_DEBUG*/
-
+#if 0
+	    if (length < 10) {
+	       printf("*****found**** %.*s for %.*s ... %d\n", objLength, objLength ? objBytes : "", length, length ? bytes : "", objIndex);
+	    }
+#endif
 	    return objIndex;
 	}
     }
 
     /*
-     * The literal is new to this CompileEnv. If it is a command name, avoid
-     * sharing it accross namespaces, and try not to share it with non-cmd
-     * literals. Note that FQ command names can be shared, so that we register
-     * the namespace as the interp's global NS.
+     * The literal is new to this CompileEnv. 
+     * If it is a code segment, avoid sharing if possible (could belong to
+     * different root code segments).
+     * If it is a command name, avoid sharing it accross namespaces, and try
+     * not to share it with non-cmd literals. Note that FQ command names can
+     * be shared, so that we register the namespace as the interp's global NS.
      */
 
     if ((flags & LITERAL_CMD_NAME)) {
@@ -446,8 +475,8 @@ TclRegisterLiteral(
      */
 
     globalPtr = NULL;
-    objPtr = TclCreateLiteral(iPtr, bytes, length, hash, &new, nsPtr, flags,
-	    &globalPtr);
+    objPtr = TclCreateLiteralEx(iPtr, envPtr, bytes, length, hash, &new, nsPtr,
+	     flags, &globalPtr);
     objIndex = AddLocalLiteralEntry(envPtr, objPtr, localHash);
 
 #ifdef TCL_COMPILE_DEBUG
@@ -617,6 +646,15 @@ TclAddLiteralObj(
 	*litPtrPtr = lPtr;
     }
 
+#if 0
+    if (1) {
+	int length;
+	const char * bytes = Tcl_GetUtfFromObj(objPtr, &length);
+	if (length < 10) {
+	   printf("*****ad+lt**** %.*s ... %d\n", length, length ? bytes : "", objIndex);
+	}
+    }
+#endif
     return objIndex;
 }
 
