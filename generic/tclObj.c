@@ -1722,6 +1722,17 @@ Tcl_GetStringFromObj(
     return objPtr->bytes;
 }
 
+int
+Tcl_ObjHasBytes(
+    Tcl_Obj *objPtr)
+{
+    return (
+	objPtr->bytes
+     || (objPtr->typePtr == &tclCodeSegmentType)
+     || (objPtr->typePtr && objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
+    );
+}
+
 /*
  *----------------------------------------------------------------------
  *

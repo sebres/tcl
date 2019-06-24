@@ -3301,6 +3301,7 @@ MODULE_SCOPE int	Tcl_DisassembleObjCmd(ClientData clientData,
 			    Tcl_Obj *const objv[]);
 
 MODULE_SCOPE const char * Tcl_GetUtfFromObj(Tcl_Obj *objPtr, int *lengthPtr);
+MODULE_SCOPE int	Tcl_ObjHasBytes(Tcl_Obj *objPtr);
 MODULE_SCOPE void	TclFreeByteCodeInternalRep(Tcl_Obj *objPtr);
 MODULE_SCOPE void	TclInvalidateByteCodeInternalRep(Tcl_Obj *objPtr);
 MODULE_SCOPE void	TclUpdateStringOfByteCode(Tcl_Obj *objPtr);

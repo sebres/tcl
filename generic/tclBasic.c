@@ -5828,7 +5828,7 @@ TclArgumentGet(
      * up by the caller. It knows better than us.
      */
 
-    if ((obj->bytes == NULL) || TclListObjIsCanonical(obj)) {
+    if (!Tcl_ObjHasBytes(obj) || TclListObjIsCanonical(obj)) {
 	return;
     }
 
