@@ -96,7 +96,8 @@ COMPILE_DEBUG_FLAGS =
 
 SRC_DIR			= @srcdir@
 ROOT_DIR		= @srcdir@/..
-TOP_DIR			= $(shell cd @srcdir@/..; pwd -P)
+TOP_DIR			= $(shell cd @srcdir@/..; pwd -W || pwd -P)
+$(info NB: $$TOP_DIR is [$(TOP_DIR)])
 GENERIC_DIR		= $(TOP_DIR)/generic
 TOMMATH_DIR		= $(TOP_DIR)/libtommath
 WIN_DIR			= $(TOP_DIR)/win
@@ -106,6 +107,7 @@ ZLIB_DIR		= $(COMPAT_DIR)/zlib
 
 # Converts a POSIX path to a Windows native path.
 CYGPATH			= @CYGPATH@
+$(info NB: $$CYGPATH is [$(CYGPATH)])
 
 libdir_native	= $(shell $(CYGPATH) '$(libdir)')
 bindir_native	= $(shell $(CYGPATH) '$(bindir)')

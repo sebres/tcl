@@ -3,226 +3,51 @@ language: c
 
 matrix:
   include:
-# Testing on Linux with various compilers
-    - name: "Linux/Clang/Shared"
-      os: linux
-      dist: xenial
-      compiler: clang
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/Clang/Static"
-      os: linux
-      dist: xenial
-      compiler: clang
-      env:
-        - CFGOPT=--disable-shared
-        - BUILD_DIR=unix
-    - name: "Linux/GCC/Shared"
-      os: linux
-      dist: xenial
+# Test on Windows with GCC native (make)
+    - name: "Windows/GCC+GMake/Shared x86"
+      os: windows
       compiler: gcc
       env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC/Static"
-      os: linux
-      dist: xenial
-      compiler: gcc
-      env:
-        - CFGOPT=--disable-shared
-        - BUILD_DIR=unix
-# Older versions of GCC...
-    - name: "Linux/GCC 4.9/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-4.9
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-4.9
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 5/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-5
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-5
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 6/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-6
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-6
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 7/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-7
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-7
-      env:
-        - BUILD_DIR=unix
-# Testing on Mac, various styles
-    - name: "macOS/Xcode 8/Shared/Unix-like"
-      os: osx
-      osx_image: xcode8
-      env:
-        - BUILD_DIR=unix
-    - name: "macOS/Xcode 8/Shared/Mac-like"
-      os: osx
-      osx_image: xcode8
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: &mactest
+        - BUILD_DIR=win/build
+        - CFGOPT="--enable-threads --disable-64bit"
+      before_install:
+        - choco install make
+        - echo $(make --version)
+      script:
+        - echo $(pwd)
         - make all
-        # The styles=develop avoids some weird problems on OSX
-        - make test styles=develop
-    - name: "macOS/Xcode 9/Shared/Mac-like"
-      os: osx
-      osx_image: xcode9
+        - make --debug=verbose tcltest
+        - make test
+
+# Test on Windows with GCC native (make)
+    - name: "Windows/GCC+GMake/Shared x64"
+      os: windows
+      compiler: gcc
       env:
-        - BUILD_DIR=macosx
-      install: []
-      script: *mactest
-    - name: "macOS/Xcode 10/Shared/Mac-like"
-      os: osx
-      osx_image: xcode10.2
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: *mactest
-# Test with mingw-w64 (32 bit) cross-compile
-# Doesn't run tests because wine is only an imperfect Windows emulation 
-    - name: "Linux-cross-Windows-32/GCC/Shared/no test"
-      os: linux
-      dist: xenial
-      compiler: i686-w64-mingw32-gcc
-      addons: &mingw32
-        apt:
-          packages:
-            - gcc-mingw-w64-base
-            - binutils-mingw-w64-i686
-            - gcc-mingw-w64-i686
-            - gcc-mingw-w64
-            - gcc-multilib
-            - wine
-      env:
-        - BUILD_DIR=win
-        - CFGOPT=--host=i686-w64-mingw32
-      script: &crosstest
+        - BUILD_DIR=win/build
+        - CFGOPT="--enable-threads --enable-64bit"
+      before_install:
+        - choco install make
+        - echo $(make --version)
+      script:
+        - echo $(pwd)
         - make all
-        - make tcltest
-        # Include a high visibility marker that tests are skipped outright
-        - >
-          echo "`tput setaf 3`SKIPPED TEST: CROSS COMPILING`tput sgr0`"
-    - name: "Linux-cross-Windows-32/GCC/Static/no test"
-      os: linux
-      dist: xenial
-      compiler: i686-w64-mingw32-gcc
-      addons: *mingw32
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--host=i686-w64-mingw32 --disable-shared"
-      script: *crosstest
-# Test with mingw-w64 (64 bit)
-# Doesn't run tests because wine is only an imperfect Windows emulation 
-    - name: "Linux-cross-Windows-64/GCC/Shared/no test"
-      os: linux
-      dist: xenial
-      compiler: x86_64-w64-mingw32-gcc
-      addons: &mingw64
-        apt:
-          packages:
-            - gcc-mingw-w64-base
-            - binutils-mingw-w64-x86-64
-            - gcc-mingw-w64-x86-64
-            - gcc-mingw-w64
-            - wine
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--host=x86_64-w64-mingw32 --enable-64bit"
-      script: *crosstest
-    - name: "Linux-cross-Windows-64/GCC/Static/no test"
-      os: linux
-      dist: xenial
-      compiler: x86_64-w64-mingw32-gcc
-      addons: *mingw64
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--host=x86_64-w64-mingw32 --enable-64bit --disable-shared"
-      script: *crosstest
-# Test on Windows with GCC native
-    - name: "Windows/GCC/Shared"
-      os: windows
-      compiler: gcc
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--enable-64bit --enable-threads"
-      before_install: &cygwinSetup
-        - choco install cyg-get
-	- cyg-get make
-        - cd ${BUILD_DIR}
-      install:
-        - ./configure ${CFGOPT} --prefix=$HOME
-        # for debugging only
-        - cat Makefile
-    - name: "Windows/GCC/Unshared"
-      os: windows
-      compiler: gcc
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--enable-64bit --enable-threads --disable-shared"
-      before_install: *cygwinSetup
-# Test on Windows with MSVC native
-    - name: "Windows/MSVC/Shared"
-      os: windows
-      compiler: cl
-      env: &vcenv
-        - BUILD_DIR=win
-        - VCDIR="/C/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Auxiliary/Build"
-      before_install: &vcpreinst
-        - PATH="$PATH:$VCDIR"
-        - cd ${BUILD_DIR}
-      install: []
-      script: &vctest
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake -f makefile.vc all'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake -f makefile.vc tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake -f makefile.vc test'
-    - name: "Windows/MSVC/Unshared"
-      os: windows
-      compiler: cl
-      env: *vcenv
-      before_install: *vcpreinst
-      install: []
-      script: &vctest
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static -f makefile.vc all'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static -f makefile.vc tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static -f makefile.vc test'
+        - make --debug=verbose tcltest
+        - make test
 
 before_install:
+  - mkdir -p ${BUILD_DIR}
   - cd ${BUILD_DIR}
 install:
-  - ./configure ${CFGOPT} --prefix=$HOME
+  - mkdir -p ${BUILD_DIR}
+  - cd ${BUILD_DIR}
+  - ../configure ${CFGOPT} --prefix=$HOME
+  # for debugging only
+  - cat Makefile
+
 before_script:
   - export ERROR_ON_FAILURES=1
+
 script:
   - make all
   - make tcltest
