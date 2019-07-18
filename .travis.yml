@@ -3,6 +3,22 @@ language: c
 
 matrix:
   include:
+
+    - name: "Test options ???"
+      os: windows
+      compiler: gcc
+      env:
+        - BUILD_DIR=win/build
+        - CFGOPT="--enable-threads --disable-64bit"
+      before_install:
+        - choco install make
+        - ((i686-w64-mingw32-gcc -m32 -dM -E - < /dev/null | grep MINGW) && export CC=i686-w64-mingw32-gcc) || choco upgrade mingw --x86 --force
+        - echo $CC
+        - $CC --version
+        - $CC -m32 -dM -E - < /dev/null
+      script:
+        - exit 0
+
 # Test on Windows with GCC native (make)
     - name: "Windows/GCC+GMake/Shared x86"
       os: windows
@@ -12,14 +28,16 @@ matrix:
         - CFGOPT="--enable-threads --disable-64bit"
       before_install:
         - choco install make
-        - choco install mingw --x86 --force
-        - gcc --version
-        - (gcc -m32 -dM -E - < /dev/null) | grep MINGW
+        #- ((i686-w64-mingw32-gcc -m32 -dM -E - < /dev/null | grep MINGW) && export CC=i686-w64-mingw32-gcc) || choco upgrade mingw --x86 --force
+        #- $CC --version
+        #- $CC -m32 -dM -E - < /dev/null
+        - CFLAGS=-m32 LDFLAGS=-m32 AR='ar' RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
       script:
         - echo $(pwd)
         - make all
         - make tcltest
-        - make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
+        #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
+        - ./tcltest
 
 # Test on Windows with GCC native (make)
     - name: "Windows/GCC+GMake/Shared x64"
@@ -36,7 +54,8 @@ matrix:
         - echo $(pwd)
         - make all
         - make tcltest
-        - make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
+        #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
+        - ./tcltest
 
 before_install:
   - mkdir -p ${BUILD_DIR}

@@ -2435,7 +2435,7 @@ proc tcltest::cleanupTests {{calledFromAllFile 0}} {
 	foreach file $filesMade {
 	    if {[file exists $file]} {
 		DebugDo 1 {Warn "cleanupTests deleting $file..."}
-		catch {file delete -force -- $file}
+		catch {_safeFileDelete -force -- $file}
 	    }
 	}
 	set currentFiles {}
@@ -3039,6 +3039,34 @@ proc tcltest::makeFile {contents name {directory ""}} {
     return $fullName
 }
 
+# tcltest::_safeFileDelete --
+#
+#	Safe wrapper around "file delete" to avoid errors using some rude
+#	antivirus software or multi-processing related bug on windows,
+#	(re)trying delete process in case of EACCES (permission denied).
+#
+# Arguments:
+#	same as for [file delete]
+#
+# Results:
+#	return value from [file delete]
+#
+# Side effects:
+#	Could cause a delay up-to 1.5 seconds by real permission denied issue.
+
+proc tcltest::_safeFileDelete args {
+    while {[catch {
+	file delete {*}$args
+    } r opt]} {
+	if {[incr attempts] > 10 || [dict get $opt -errorcode] ne "POSIX EACCES {permission denied}"} {
+	    break
+	}
+	# wait a bit (up to 1.5 seconds by 10 attempts):
+	after [expr {($attempts*2) ** 2}]
+    }
+    return {*}$opt $r
+}
+
 # tcltest::removeFile --
 #
 #	Removes the named file from the filesystem
@@ -3073,7 +3101,7 @@ proc tcltest::removeFile {name {directory ""}} {
 	    Warn "removeFile removing \"$fullName\":\n  not a file"
 	}
     }
-    return [file delete -- $fullName]
+    return [_safeFileDelete -- $fullName]
 }
 
 # tcltest::makeDirectory --
@@ -3144,7 +3172,7 @@ proc tcltest::removeDirectory {name {directory ""}} {
 	    Warn "removeDirectory removing \"$fullName\":\n  not a directory"
 	}
     }
-    return [file delete -force -- $fullName]
+    return [_safeFileDelete -force -- $fullName]
 }
 
 # tcltest::viewFile --
