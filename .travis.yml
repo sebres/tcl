@@ -4,23 +4,7 @@ language: c
 matrix:
   include:
 
-    - name: "Test options ???"
-      os: windows
-      compiler: gcc
-      env:
-        - BUILD_DIR=win/build
-        - CFGOPT="--enable-threads --disable-64bit"
-      before_install:
-        - choco install make
-        - ((i686-w64-mingw32-gcc -m32 -dM -E - < /dev/null | grep MINGW) && export CC=i686-w64-mingw32-gcc) || choco upgrade mingw --x86 --force
-        - echo $CC
-        - $CC --version
-        - $CC -m32 -dM -E - < /dev/null
-      script:
-        - exit 0
-
-# Test on Windows with GCC native (make)
-    - name: "Windows/GCC+GMake/Shared x86"
+    - name: "Windows/GCC+GMake/Shared x86 (try multilib)"
       os: windows
       compiler: gcc
       env:
@@ -31,15 +15,41 @@ matrix:
         #- ((i686-w64-mingw32-gcc -m32 -dM -E - < /dev/null | grep MINGW) && export CC=i686-w64-mingw32-gcc) || choco upgrade mingw --x86 --force
         #- $CC --version
         #- $CC -m32 -dM -E - < /dev/null
+      install:
+        - mkdir -p ${BUILD_DIR}
+        - cd ${BUILD_DIR}
         - CFLAGS=-m32 LDFLAGS=-m32 AR='ar' RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
       script:
-        - echo $(pwd)
         - make all
         - make tcltest
         #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
-        - ./tcltest
+        #- ./tcltest
+        - make test
 
-# Test on Windows with GCC native (make)
+    - name: "Windows/GCC+GMake/Shared x86 (upgrade toolchain to x86)"
+      os: windows
+      compiler: gcc
+      env:
+        - BUILD_DIR=win/build
+        - CFGOPT="--enable-threads --disable-64bit"
+      before_install:
+        - choco install make
+        - choco upgrade mingw --x86 --force
+        - $CC --version
+        #- $CC -m32 -dM -E - < /dev/null
+      install:
+        - mkdir -p ${BUILD_DIR}
+        - cd ${BUILD_DIR}
+        # x86 with multilib mingw (e. g. x86_64-w64-mingw32-8.3.0-crt-6.0.0-multilib.7z)
+        #- CFLAGS=-m32 LDFLAGS=-m32 AR='ar' RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
+        - ../configure --enable-threads --disable-64bit
+      script:
+        - make all
+        - make tcltest
+        #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
+        #- ./tcltest
+        - make test
+
     - name: "Windows/GCC+GMake/Shared x64"
       os: windows
       compiler: gcc
@@ -51,11 +61,11 @@ matrix:
         - echo $(make --version)
         - (gcc -m64 -dM -E - < /dev/null) | grep MINGW
       script:
-        - echo $(pwd)
         - make all
         - make tcltest
         #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
-        - ./tcltest
+        #- ./tcltest
+        - make test
 
 before_install:
   - mkdir -p ${BUILD_DIR}
