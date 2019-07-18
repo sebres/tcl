@@ -23,6 +23,10 @@ if {[singleProcess]} {
 }
 
 set ErrorOnFailures [info exists env(ERROR_ON_FAILURES)]
+puts "******************ErrorOnFailures:$ErrorOnFailures"
 unset -nocomplain env(ERROR_ON_FAILURES)
-if {[runAllTests] && $ErrorOnFailures} {exit 1}
+set err [runAllTests]
+puts "******************err:$err, ErrorOnFailures:$ErrorOnFailures, [catch {info body exit} exitbody; set exitbody]"
+if {$err && $ErrorOnFailures} {exit 1}
+puts "******************!after exit!"
 proc exit args {}

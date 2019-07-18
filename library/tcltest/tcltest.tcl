@@ -2889,6 +2889,7 @@ proc tcltest::runAllTests { {shell ""} } {
 	puts [outputChannel] ""
 	puts [outputChannel] [string repeat ~ 44]
     }
+    puts "******************[subst {[info exists testFileFailures] || [llength $failFilesAccum]}] == [expr {[info exists testFileFailures] || [llength $failFilesAccum]}]"
     return [expr {[info exists testFileFailures] || [llength $failFilesAccum]}]
 }
 

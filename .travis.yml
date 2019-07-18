@@ -12,12 +12,14 @@ matrix:
         - CFGOPT="--enable-threads --disable-64bit"
       before_install:
         - choco install make
-        - echo $(make --version)
+        - choco install mingw --x86 --force
+        - gcc --version
+        - (gcc -m32 -dM -E - < /dev/null) | grep MINGW
       script:
         - echo $(pwd)
         - make all
-        - make --debug=verbose tcltest
-        - make test
+        - make tcltest
+        - make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
 
 # Test on Windows with GCC native (make)
     - name: "Windows/GCC+GMake/Shared x64"
@@ -29,11 +31,12 @@ matrix:
       before_install:
         - choco install make
         - echo $(make --version)
+        - (gcc -m64 -dM -E - < /dev/null) | grep MINGW
       script:
         - echo $(pwd)
         - make all
-        - make --debug=verbose tcltest
-        - make test
+        - make tcltest
+        - make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
 
 before_install:
   - mkdir -p ${BUILD_DIR}
@@ -43,7 +46,7 @@ install:
   - cd ${BUILD_DIR}
   - ../configure ${CFGOPT} --prefix=$HOME
   # for debugging only
-  - cat Makefile
+  #- cat Makefile
 
 before_script:
   - export ERROR_ON_FAILURES=1
