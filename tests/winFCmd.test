@@ -399,31 +399,44 @@ testConstraint winNonZeroInodes [eval {
     expr {$statExe(ino) != 0}
 }]
 
-proc MakeFiles {dirname} {
-    set inodes {}
+# Following 2 tests check rename of file with conflicting ino-value, but that is hardly producible (extremely sporadic)
+# on modern Windows system (especially if stat64 functions useable), so this is parted in 2 tests
+# (and the max files count is increased in winFCmd-1.38.2 to 100K, and it is marked via slowTest constraint for manual run only).
+proc MakeFiles {dirname {maxentries 5000}} {
     set ndx -1
     while {1} {
-        # upped to 50K for 64bit Server 2008
-        if {$ndx > 50000} {
-            return -code error "limit reached without finding a collistion."
+        if {$ndx > $maxentries} {
+            ::tcltest::Warn "limit $maxentries reached without finding a collistion, do simple test"
+            return [list [file join $dirname Test0] $filename]
         }
         set filename [file join $dirname Test[incr ndx]]
         set f [open $filename w]
         close $f
         file stat $filename stat
-        if {[set n [lsearch -exact -integer $inodes $stat(ino)]] != -1} {
+        if {$stat(ino) && [info exists inodes($stat(ino))]} {
+            set n $inodes($stat(ino))
             return [list [file join $dirname Test$n] $filename]
         }
-        lappend inodes $stat(ino)
+        set inodes($stat(ino)) $ndx
         unset stat
     }
 }
-
-test winFCmd-1.38 {TclpRenameFile: check rename of conflicting inodes} -setup {
+test winFCmd-1.38.1 {TclpRenameFile: check rename of conflicting inodes} -setup {
     cleanup
 } -constraints {win winNonZeroInodes} -body {
     file mkdir td1
-    foreach {a b} [MakeFiles td1] break
+    lassign [MakeFiles td1] a b
+    file rename -force $a $b
+    file exists $a
+} -cleanup {
+    cleanup
+} -result {0}
+test winFCmd-1.38.2 {TclpRenameFile: check rename of conflicting inodes (slow)} -setup {
+    cleanup
+} -constraints {win winNonZeroInodes slowTest} -body {
+    file mkdir td1
+    # upped to 100K for 64bit Windows >= 7.0 (but also too sporadic):
+    lassign [MakeFiles td1 100000] a b
     file rename -force $a $b
     file exists $a
 } -cleanup {
