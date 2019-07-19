@@ -431,6 +431,7 @@ doc:
 $(TCLSH): $(TCLSH_OBJS) @LIBRARIES@ $(TCL_STUB_LIB_FILE) tclsh.$(RES)
 	$(CC) $(CFLAGS) $(TCLSH_OBJS) $(TCL_LIB_FILE) $(TCL_STUB_LIB_FILE) $(LIBS) \
         tclsh.$(RES) $(CC_EXENAME) $(LDFLAGS_CONSOLE)
+	$(COPY) tclsh.exe.manifest $(TCLSH).manifest
 	@VC_MANIFEST_EMBED_EXE@
 
 cat32.$(OBJEXT): cat.c
@@ -450,6 +451,7 @@ ${TCL_STUB_LIB_FILE}: ${STUB_OBJS}
 ${TCL_DLL_FILE}: ${TCL_OBJS} tcl.$(RES)
 	@$(RM) ${TCL_DLL_FILE} $(TCL_LIB_FILE)
 	@MAKE_DLL@ ${TCL_OBJS} tcl.$(RES) $(SHLIB_LD_LIBS)
+	$(COPY) tclsh.exe.manifest ${TCL_DLL_FILE}.manifest
 	@VC_MANIFEST_EMBED_DLL@
 
 ${TCL_LIB_FILE}: ${TCL_OBJS} ${DDE_OBJS} ${REG_OBJS}
@@ -459,14 +461,17 @@ ${TCL_LIB_FILE}: ${TCL_OBJS} ${DDE_OBJS} ${REG_OBJS}
 
 ${DDE_DLL_FILE}: ${TCL_STUB_LIB_FILE} ${DDE_OBJS}
 	@MAKE_DLL@ ${DDE_OBJS} $(TCL_STUB_LIB_FILE) $(SHLIB_LD_LIBS)
+	$(COPY) tclsh.exe.manifest ${DDE_DLL_FILE}.manifest
 
 ${REG_DLL_FILE}: ${TCL_STUB_LIB_FILE} ${REG_OBJS}
 	@MAKE_DLL@ ${REG_OBJS} $(TCL_STUB_LIB_FILE) $(SHLIB_LD_LIBS)
+	$(COPY) tclsh.exe.manifest ${REG_DLL_FILE}.manifest
 
 ${TEST_EXE_FILE}: ${TCL_STUB_LIB_FILE} ${TCLTEST_OBJS} tclTestMain.${OBJEXT}
 	@$(RM) ${TEST_EXE_FILE}
 	$(CC) $(CFLAGS) $(TCLTEST_OBJS) tclTestMain.$(OBJEXT) $(TCL_LIB_FILE) $(TCL_STUB_LIB_FILE) $(LIBS) \
         tclsh.$(RES) $(CC_EXENAME) $(LDFLAGS_CONSOLE)
+	$(COPY) tclsh.exe.manifest ${TEST_EXE_FILE}.manifest
 
 # PIPE_DLL_FILE is actually an executable, don't build it like a DLL.
 
@@ -506,17 +511,17 @@ testMain.${OBJEXT}: tclAppInit.c
 
 tclPkgConfig.${OBJEXT}: tclPkgConfig.c
 	$(CC)	-c $(CC_SWITCHES)			\
-		-DCFG_INSTALL_LIBDIR=\"$(LIB_INSTALL_DIR_NATIVE)\" \
-		-DCFG_INSTALL_BINDIR=\"$(BIN_INSTALL_DIR_NATIVE)\" \
-		-DCFG_INSTALL_SCRDIR=\"$(SCRIPT_INSTALL_DIR_NATIVE)\" \
-		-DCFG_INSTALL_INCDIR=\"$(INCLUDE_INSTALL_DIR_NATIVE)\" \
-		-DCFG_INSTALL_DOCDIR=\"$(MAN_INSTALL_DIR)\" \
+		-DCFG_INSTALL_LIBDIR="\"$(LIB_INSTALL_DIR_NATIVE)\"" \
+		-DCFG_INSTALL_BINDIR="\"$(BIN_INSTALL_DIR_NATIVE)\"" \
+		-DCFG_INSTALL_SCRDIR="\"$(SCRIPT_INSTALL_DIR_NATIVE)\"" \
+		-DCFG_INSTALL_INCDIR="\"$(INCLUDE_INSTALL_DIR_NATIVE)\"" \
+		-DCFG_INSTALL_DOCDIR="\"$(MAN_INSTALL_DIR)\"" \
 		\
-		-DCFG_RUNTIME_LIBDIR=\"$(libdir_native)\" \
-		-DCFG_RUNTIME_BINDIR=\"$(bindir_native)\" \
-		-DCFG_RUNTIME_SCRDIR=\"$(TCL_LIBRARY_NATIVE)\" \
-		-DCFG_RUNTIME_INCDIR=\"$(includedir_native)\" \
-		-DCFG_RUNTIME_DOCDIR=\"$(mandir_native)\" \
+		-DCFG_RUNTIME_LIBDIR="\"$(libdir_native)\"" \
+		-DCFG_RUNTIME_BINDIR="\"$(bindir_native)\"" \
+		-DCFG_RUNTIME_SCRDIR="\"$(TCL_LIBRARY_NATIVE)\"" \
+		-DCFG_RUNTIME_INCDIR="\"$(includedir_native)\"" \
+		-DCFG_RUNTIME_DOCDIR="\"$(mandir_native)\"" \
 		-DBUILD_tcl \
 		@DEPARG@ $(CC_OBJNAME)
 
