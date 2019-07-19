@@ -17,7 +17,8 @@ matrix:
           wget -q -O /tmp/install.7z 'https://sourceforge.net/projects/mingw-w64/files/Multilib%20Toolchains%28Targetting%20Win32%20and%20Win64%29/ray_linn/gcc-8.x-with-ada/x86_64-w64-mingw32-8.3.0-crt-6.0.0-multilib.7z/download'
           mgwpath=/c/ProgramData/chocolatey/lib/mingw/tools/install
           7z x /tmp/install.7z -r -aoa -o$mgwpath
-          $mgwpath/mingw64/setup.bat
+          # setup.bat waits for user interaction (pause):
+          echo '' | $mgwpath/mingw64/setup.bat
           export PATH=$mgwpath/mingw64/bin:$PATH
         - $CC --version
         #- $CC -m32 -dM -E - < /dev/null
