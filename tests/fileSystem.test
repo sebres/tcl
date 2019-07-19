@@ -23,11 +23,19 @@ testConstraint loaddll 0
 catch {
     ::tcltest::loadTestedCommands
     package require -exact Tcltest [info patchlevel]
-    set ::ddever [package require dde]
-    set ::ddelib [lindex [package ifneeded dde $::ddever] 1]
-    set ::regver  [package require registry]
-    set ::reglib [lindex [package ifneeded registry $::regver] 1]
-    testConstraint loaddll 1
+    set ::ddelib [package require dde]
+    set ::ddelib [lindex [package ifneeded dde $::ddelib] 1]
+    set ::reglib  [package require registry]
+    set ::reglib [lindex [package ifneeded registry $::reglib] 1]
+
+    # may be a dll-file name only (e. g. if tests running in temp-dir, try it relative executable):
+    if {![file isfile $::ddelib]} {
+	set ::ddelib [file join [file dirname [info nameofexecutable]] $::ddelib]
+    }
+    if {![file isfile $::reglib]} {
+	set ::reglib [file join [file dirname [info nameofexecutable]] $::reglib]
+    }
+    testConstraint loaddll [expr {[file isfile $::ddelib] && [file isfile $::reglib]}]
 }
 
 # Test for commands defined in Tcltest executable

@@ -56,6 +56,7 @@ proc cleanup {args} {
     }
 }
 
+testConstraint winChmodAllowed 0
 if {[testConstraint winOnly]} {
     if {[testConstraint nt] && $::tcl_platform(osVersion) >= 5.0} {
         if {$::tcl_platform(osVersion) >= 6.0} {
@@ -66,6 +67,16 @@ if {[testConstraint winOnly]} {
     } else {
 	testConstraint winOlderThan2000 1
     }
+    # check permissions are applicable via testchmod in current drive/directory (NTFS/policies related):
+    if {[testConstraint testfile] && [testConstraint testchmod]} { catch {
+	cleanup 
+	file mkdir td1
+	testchmod 0 td1
+	# if we can delete this directory without EACCES testchmod does not affect some special (owned/parent) permissions:
+	testConstraint winChmodAllowed [expr { [catch { file delete td1 }] }]
+	catch {testchmod 0o666 td1}
+	cleanup
+    } }
 }
 
 # find a CD-ROM so we can test read-only filesystems.
@@ -660,7 +671,7 @@ test winFCmd-5.1 {TclpCopyDirectory: calls TraverseWinTree} -setup {
 
 test winFCmd-6.1 {TclpRemoveDirectory: errno: EACCES} -setup {
     cleanup
-} -constraints {winVista testfile testchmod} -body {
+} -constraints {winVista winChmodAllowed} -body {
     file mkdir td1
     testchmod 0 td1
     testfile rmdir td1
@@ -714,7 +725,7 @@ test winFCmd-6.8 {TclpRemoveDirectory: RemoveDirectory fails} -setup {
 } -result {1 {tf1 ENOTDIR}}
 test winFCmd-6.9 {TclpRemoveDirectory: errno == EACCES} -setup {
     cleanup
-} -constraints {winVista testfile testchmod} -body {
+} -constraints {winVista winChmodAllowed} -body {
     file mkdir td1
     testchmod 0 td1
     testfile rmdir td1
@@ -732,7 +743,7 @@ test winFCmd-6.11 {TclpRemoveDirectory: attr == -1} -setup {
 } -returnCodes error -match regexp -result {^/ E(ACCES|EXIST)$}
 test winFCmd-6.13 {TclpRemoveDirectory: write-protected} -setup {
     cleanup
-} -constraints {winVista testfile testchmod} -body {
+} -constraints {winVista winChmodAllowed} -body {
     file mkdir td1
     testchmod 0 td1
     testfile rmdir td1
@@ -961,7 +972,7 @@ test winFCmd-9.1 {TraversalDelete: DOTREE_F} -setup {
 } -result {}
 test winFCmd-9.3 {TraversalDelete: DOTREE_PRED} -setup {
     cleanup
-} -constraints {winVista testfile testchmod} -body {
+} -constraints {winVista winChmodAllowed} -body {
     file mkdir td1/td2
     testchmod 0 td1
     testfile rmdir -force td1
