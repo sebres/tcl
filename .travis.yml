@@ -4,13 +4,13 @@ language: c
 matrix:
   include:
 
-    - name: "Windows/GCC/Shared x86 and x64 (multilib, mingw-8.3)"
+    - name: "Windows/GCC/Shared x86 (multilib, mingw-8.3)"
       os: windows
       env:
-        # test x86 and x64 (multilib-build):
-        - BUILD_DIR=win/bld32 CFGOPT="--enable-threads --disable-64bit" CFLAGS=-m32 LDFLAGS=-m32 RC="windres --target=pe-i386"
-        - BUILD_DIR=win/bld64 CFGOPT="--enable-threads --enable-64bit"  CFLAGS=-m64 LDFLAGS=-m64 RC='windres --target=pe-x86-64'
+        - BUILD_DIR=win/bld32
+        - CFGOPT="--enable-threads --disable-64bit"
         # (todo) the option for AR belong after command (ar cr --target=pe-i386 ...), but we not need it in CI at the moment
+        - CFLAGS=-m32 LDFLAGS=-m32 RC="windres --target=pe-i386"
       before_install:
         - choco install make
         # install multilib mingw:
@@ -23,11 +23,43 @@ matrix:
           export PATH=$mgwpath/mingw64/bin:$PATH
         - gcc --version
       install:
-        - echo Build ${BUILD_DIR} ...
-      script:
         - mkdir -p ${BUILD_DIR}
         - cd ${BUILD_DIR}
         - ../configure ${CFGOPT}
+      script:
+        #
+        - make all
+        - make tcltest
+        - |
+          echo 'dict for {k v} [array get tcl_platform] {puts [format %4s%-20s%s "" ${k}: $v]}' | ./tcltest.exe
+
+        # (todo) windows tests should work in temporary folder (permissions related on some relative path, e. g. winFCmd, etc):
+        # make test TESTFLAGS='-tmpdir 1'
+        - ./tcltest.sh
+
+    - name: "Windows/GCC/Shared x64 (multilib, mingw-8.3)"
+      os: windows
+      env:
+        - BUILD_DIR=win/bld64
+        - CFGOPT="--enable-threads --enable-64bit"
+        # (todo) the option for AR belong after command (ar cr --target=pe-x86-64 ...), but we not need it in CI at the moment
+        - CFLAGS=-m64 LDFLAGS=-m64 RC='windres --target=pe-x86-64'
+      before_install:
+        - choco install make
+        # install multilib mingw:
+        - |
+          wget -q -O /tmp/install.7z 'https://sourceforge.net/projects/mingw-w64/files/Multilib%20Toolchains%28Targetting%20Win32%20and%20Win64%29/ray_linn/gcc-8.x-with-ada/x86_64-w64-mingw32-8.3.0-crt-6.0.0-multilib.7z/download'
+          mgwpath=/c/ProgramData/chocolatey/lib/mingw/tools/install
+          7z x /tmp/install.7z -r -aoa -o$mgwpath
+          # atm don't need to setup it (add to path is enough):
+          # echo '' | $mgwpath/mingw64/setup.bat
+          export PATH=$mgwpath/mingw64/bin:$PATH
+        - gcc --version
+      install:
+        - mkdir -p ${BUILD_DIR}
+        - cd ${BUILD_DIR}
+        - ../configure ${CFGOPT}
+      script:
         #
         - make all
         - make tcltest
