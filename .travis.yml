@@ -4,12 +4,13 @@ language: c
 matrix:
   include:
 
-    - name: "Windows/GCC+GMake/Shared x86 (try multilib)"
+    - name: "Windows/GCC/Shared x86 and x64 (multilib, mingw-8.3)"
       os: windows
-      compiler: gcc
       env:
-        - BUILD_DIR=win/build
-        - CFGOPT="--enable-threads --disable-64bit"
+        # test x86 and x64 (multilib-build):
+        - BUILD_DIR=win/bld32 CFGOPT="--enable-threads --disable-64bit" CFLAGS=-m32 LDFLAGS=-m32 RC="windres --target=pe-i386"
+        - BUILD_DIR=win/bld64 CFGOPT="--enable-threads --enable-64bit"  CFLAGS=-m64 LDFLAGS=-m64 RC='windres --target=pe-x86-64'
+        # (todo) the option for AR belong after command (ar cr --target=pe-i386 ...), but we not need it in CI at the moment
       before_install:
         - choco install make
         # install multilib mingw:
@@ -17,55 +18,27 @@ matrix:
           wget -q -O /tmp/install.7z 'https://sourceforge.net/projects/mingw-w64/files/Multilib%20Toolchains%28Targetting%20Win32%20and%20Win64%29/ray_linn/gcc-8.x-with-ada/x86_64-w64-mingw32-8.3.0-crt-6.0.0-multilib.7z/download'
           mgwpath=/c/ProgramData/chocolatey/lib/mingw/tools/install
           7z x /tmp/install.7z -r -aoa -o$mgwpath
-          # setup.bat waits for user interaction (pause):
-          echo '' | $mgwpath/mingw64/setup.bat
+          # atm don't need to setup it (add to path is enough):
+          # echo '' | $mgwpath/mingw64/setup.bat
           export PATH=$mgwpath/mingw64/bin:$PATH
-        - $CC --version
-        #- $CC -m32 -dM -E - < /dev/null
+        - gcc --version
       install:
+        - echo Build ${BUILD_DIR} ...
+      script:
         - mkdir -p ${BUILD_DIR}
         - cd ${BUILD_DIR}
-        # the options belong after command (ar cr --target=pe-i386 ...), but we not need it in CI:
-        #- CFLAGS=-m32 LDFLAGS=-m32 AR='ar --target=pe-i386' RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
-        - CFLAGS=-m32 LDFLAGS=-m32 RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
-      script:
+        - ../configure ${CFGOPT}
+        #
         - make all
         - make tcltest
         - |
           echo 'dict for {k v} [array get tcl_platform] {puts [format %4s%-20s%s "" ${k}: $v]}' | ./tcltest.exe
-        #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
-        #- ./tcltest
-        - make test
 
-    - name: "Windows/GCC+GMake/Shared x86 (upgrade toolchain to x86)"
-      os: windows
-      compiler: gcc
-      env:
-        - BUILD_DIR=win/build
-        - CFGOPT="--enable-threads --disable-64bit"
-      before_install:
-        - choco install make
-        - choco upgrade mingw --x86 --force
-        - refreshenv
-        - $CC --version
-        - export PATH=/c/tools/mingw32/bin:$PATH
-        #- $CC -m32 -dM -E - < /dev/null
-      install:
-        - mkdir -p ${BUILD_DIR}
-        - cd ${BUILD_DIR}
-        # x86 with multilib mingw (e. g. x86_64-w64-mingw32-8.3.0-crt-6.0.0-multilib.7z)
-        #- CFLAGS=-m32 LDFLAGS=-m32 AR='ar' RC='windres --target=pe-i386' ../configure --enable-threads --disable-64bit
-        - ../configure --enable-threads --disable-64bit
-      script:
-        - make all
-        - make tcltest
-        - |
-          echo 'dict for {k v} [array get tcl_platform] {puts [format %4s%-20s%s "" ${k}: $v]}' | ./tcltest.exe
-        #- make test TESTFLAGS="-tmpdir $(cd $TEMP && pwd -W || pwd -P)"
-        #- ./tcltest
-        - make test
+        # (todo) windows tests should work in temporary folder (permissions related on some relative path, e. g. winFCmd, etc):
+        # make test TESTFLAGS='-tmpdir 1'
+        - ./tcltest.sh
 
-    - name: "Windows/GCC+GMake/Shared x64"
+    - name: "Windows/GCC/Shared x64"
       os: windows
       compiler: gcc
       env:
@@ -73,18 +46,16 @@ matrix:
         - CFGOPT="--enable-threads --enable-64bit"
       before_install:
         - choco install make
-        - echo $(make --version)
-        - (gcc -m64 -dM -E - < /dev/null) | grep MINGW
+        #- (gcc -m64 -dM -E - < /dev/null) | grep MINGW
       script:
         - make all
-        - |
-          echo 'dict for {k v} [array get tcl_platform] {puts [format %4s%-20s%s "" ${k}: $v]}' | ./tclsh86.exe
         - make tcltest
         - |
           echo 'dict for {k v} [array get tcl_platform] {puts [format %4s%-20s%s "" ${k}: $v]}' | ./tcltest.exe
-        # windows tests should work in temporary folder (permissions related on some relative path, e. g. winFCmd, etc):
-        - ./tcltest.cmd
-        #- make test
+
+        # (todo) windows tests should work in temporary folder (permissions related on some relative path, e. g. winFCmd, etc):
+        # make test TESTFLAGS='-tmpdir 1'
+        - ./tcltest.sh
 
 before_install:
   - mkdir -p ${BUILD_DIR}

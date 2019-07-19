@@ -150,10 +150,10 @@ REG_LIB_FILE		= @LIBPREFIX@tclreg$(REGVER)${LIBSUFFIX}
 TEST_DLL_FILE		= tcltest$(VER)${DLLSUFFIX}
 TEST_EXE_FILE		= tcltest${EXESUFFIX}
 TEST_LIB_FILE		= @LIBPREFIX@tcltest$(VER)${LIBSUFFIX}
-TEST_LOAD_PRMS		= package ifneeded dde 1.4.1 [list load [file normalize ${DDE_DLL_FILE}] dde];\
-			  package ifneeded registry 1.3.3 [list load [file normalize ${REG_DLL_FILE}] registry]
-TEST_LOAD_FACILITIES	= package ifneeded Tcltest ${VERSION}@TCL_PATCH_LEVEL@ [list load [file normalize ${TEST_DLL_FILE}] Tcltest];\
-			  $(TEST_LOAD_PRMS)
+TEST_LOAD_PRMS		= package ifneeded dde 1.4.1 [list load ${DDE_DLL_FILE} dde];\
+			  package ifneeded registry 1.3.3 [list load ${REG_DLL_FILE} registry];
+TEST_LOAD_FACILITIES	= $(TEST_LOAD_PRMS)\
+			  package ifneeded Tcltest ${VERSION}@TCL_PATCH_LEVEL@ [list load ${TEST_DLL_FILE} Tcltest];
 ZLIB_DLL_FILE		= zlib1.dll
 
 SHARED_LIBRARIES 	= $(TCL_DLL_FILE) @ZLIB_DLL_FILE@
@@ -435,7 +435,7 @@ all: binaries libraries doc packages
 # or from mingw/msys shell:
 #   $ ./tcltest -verbose bps -file fileName.test
 
-tcltest.cmd:
+tcltest-cmd:
 	@echo 'Create tcltest.cmd helpers';
 	@(\
 	  echo '@echo off'; \
@@ -443,8 +443,8 @@ tcltest.cmd:
 	  echo 'set BDP=%~dp0'; \
 	  echo 'set OWD=%CD%'; \
 	  echo 'cd /d %TEMP%'; \
-	  echo 'rem "%BDP%\$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_FACILITIES)" %*'; \
-	  echo '"%BDP%\$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_PRMS)" %*'; \
+	  echo 'rem "%BDP%\$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" %TESTFLAGS% -load "$(TEST_LOAD_FACILITIES)" %*'; \
+	  echo '"%BDP%\$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" %TESTFLAGS% -load "$(TEST_LOAD_PRMS)" %*'; \
 	  echo 'cd /d %OWD%'; \
 	) > tcltest.cmd;
 	@(\
@@ -452,9 +452,11 @@ tcltest.cmd:
 	  echo '#LANG=en_US'; \
 	  echo 'BDP=$$(dirname $$(readlink -f %0))'; \
 	  echo 'cd /tmp'; \
-	  echo '#"$$BDP/$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_FACILITIES)" "$$@"'; \
-	  echo '"$$BDP/$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_PRMS)" "$$@"'; \
-	) > tcltest;
+	  echo '#"$$BDP/$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $$TESTFLAGS -load "$(TEST_LOAD_FACILITIES)" "$$@"'; \
+	  echo '"$$BDP/$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $$TESTFLAGS -load "$(TEST_LOAD_PRMS)" "$$@"'; \
+	) > tcltest.sh;
+tcltest.sh: tcltest-cmd
+tcltest.cmd: tcltest-cmd
 
 tcltest: binaries $(TEST_EXE_FILE) tcltest.cmd
 
