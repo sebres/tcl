@@ -63,6 +63,7 @@ namespace eval tcltest {
     namespace export verbose		;#	[configure -verbose]
     namespace export viewFile		;#	binary encoding [read]
     namespace export workingDirectory	;#	[cd] [pwd]
+    namespace export normeformat	;#	normalized eformat
 
     # Export deprecated commands for tcltest 1 compatibility
     namespace export getMatchingFiles mainThread restoreState saveState \
@@ -1288,7 +1289,8 @@ proc tcltest::DefineConstraintInitializers {} {
     # Test to see if we have a broken version of sprintf with respect
     # to the "e" format of floating-point numbers.
 
-    ConstraintInitializer eformat {string equal [format %g 5e-5] 5e-05}
+    ConstraintInitializer eformat  {string equal [format %g 5e-5] {5e-05}}
+    ConstraintInitializer normeformat {string equal [normeformat [format %g 5e-5]] {5e-05}}
 
     # Test to see if execed commands such as cat, echo, rm and so forth
     # are present on this machine.
@@ -3381,6 +3383,13 @@ namespace eval tcltest {
     customMatch exact	[list string equal]
     customMatch glob	[list string match]
     customMatch regexp	[list regexp --]
+    customMatch in	[list apply {{exp res} {expr {$res in $exp}}}]
+    # to normalize eformat (compiler resp. stdlib depended, 
+    # so if it has 3 leading 0, replace it with 2 (Ne-0NN -> Ne-NN):
+    proc normeformat {v} {regsub -all {(\d+\.?[eE][\-+]?)(0)(\d\d)\M} $v {\1\3}}
+    customMatch normeformat [list apply {{exp res} {
+	expr {[tcltest::normeformat $res] eq $res}
+    }}]
 
     # If the TCLTEST_OPTIONS environment variable exists, configure
     # tcltest according to the option values it specifies.  This has

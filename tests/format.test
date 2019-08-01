@@ -21,7 +21,7 @@ testConstraint longIs64bit [expr {int(0x8000000000000000) < 0}]
 testConstraint wideIs64bit \
 	[expr {(wide(0x80000000) > 0) && (wide(0x8000000000000000) < 0)}]
 testConstraint wideBiggerThanInt [expr {wide(0x80000000) != int(0x80000000)}]
-testConstraint knownMsvcBug [expr {![info exists ::env(TRAVIS_OS_NAME)] || ![string match windows $::env(TRAVIS_OS_NAME)]}]
+
 
 test format-1.1 {integer formatting} {
     format "%*d %d %d %d" 6 34 16923 -12 -1
@@ -53,29 +53,49 @@ test format-1.7.1 {integer formatting} longIs64bit {
     format "%4x %4x %4x %4x" 6 34 16923 -12 -1
 } {   6   22 421b fffffffffffffff4}
 test format-1.8 {integer formatting} longIs32bit {
-    format "%#x %#X %#X %#x" 6 34 16923 -12 -1
-} {0x6 0X22 0X421B 0xfffffff4}
+    format "%#x %#x %#X %#X %#x" 0 6 34 16923 -12 -1
+} {0x0 0x6 0X22 0X421B 0xfffffff4}
 test format-1.8.1 {integer formatting} longIs64bit {
-    format "%#x %#X %#X %#x" 6 34 16923 -12 -1
-} {0x6 0X22 0X421B 0xfffffffffffffff4}
+    format "%#x %#x %#X %#X %#x" 0 6 34 16923 -12 -1
+} {0x0 0x6 0X22 0X421B 0xfffffffffffffff4}
 test format-1.9 {integer formatting} longIs32bit {
-    format "%#20x %#20x %#20x %#20x" 6 34 16923 -12 -1
-} {                 0x6                 0x22               0x421b           0xfffffff4}
+    format "%#5x %#20x %#20x %#20x %#20x" 0 6 34 16923 -12 -1
+} {  0x0                  0x6                 0x22               0x421b           0xfffffff4}
 test format-1.9.1 {integer formatting} longIs64bit {
-    format "%#20x %#20x %#20x %#20x" 6 34 16923 -12 -1
-} {                 0x6                 0x22               0x421b   0xfffffffffffffff4}
+    format "%#5x %#20x %#20x %#20x %#20x" 0 6 34 16923 -12 -1
+} {  0x0                  0x6                 0x22               0x421b   0xfffffffffffffff4}
 test format-1.10 {integer formatting} longIs32bit {
-    format "%-#20x %-#20x %-#20x %-#20x" 6 34 16923 -12 -1
-} {0x6                  0x22                 0x421b               0xfffffff4          }
+    format "%-#5x %-#20x %-#20x %-#20x %-#20x" 0 6 34 16923 -12 -1
+} {0x0   0x6                  0x22                 0x421b               0xfffffff4          }
 test format-1.10.1 {integer formatting} longIs64bit {
-    format "%-#20x %-#20x %-#20x %-#20x" 6 34 16923 -12 -1
-} {0x6                  0x22                 0x421b               0xfffffffffffffff4  }
+    format "%-#5x %-#20x %-#20x %-#20x %-#20x" 0 6 34 16923 -12 -1
+} {0x0   0x6                  0x22                 0x421b               0xfffffffffffffff4  }
 test format-1.11 {integer formatting} longIs32bit {
-    format "%-#20o %#-20o %#-20o %#-20o" 6 34 16923 -12 -1
-} {06                   042                  041033               037777777764        }
+    format "%-#5o %-#20o %#-20o %#-20o %#-20o" 0 6 34 16923 -12 -1
+} {0     06                   042                  041033               037777777764        }
 test format-1.11.1 {integer formatting} longIs64bit {
-    format "%-#20o %#-20o %#-20o %#-20o" 6 34 16923 -12 -1
-} {06                   042                  041033               01777777777777777777764}
+    format "%-#5o %-#20o %#-20o %#-20o %#-20o" 0 6 34 16923 -12 -1
+} {0     06                   042                  041033               01777777777777777777764}
+
+test format-1.13 {integer formatting} longIs32bit {
+    format "%#d %#d %#d %#d %#d" 0 6 34 16923 -12 -1
+} {0 6 34 16923 -12}
+test format-1.13.1 {integer formatting} longIs64bit {
+    format "%#d %#d %#d %#d %#d" 0 6 34 16923 -12 -1
+} {0 6 34 16923 -12}
+test format-1.14 {integer formatting} longIs32bit {
+    format "%#5d %#20d %#20d %#20d %#20d" 0 6 34 16923 -12 -1
+} {    0                    6                   34                16923                  -12}
+test format-1.14.1 {integer formatting} longIs64bit {
+    format "%#5d %#20d %#20d %#20d %#20d" 0 6 34 16923 -12 -1
+} {    0                    6                   34                16923                  -12}
+test format-1.15 {integer formatting} longIs32bit {
+    format "%-#5d %-#20d %-#20d %-#20d %-#20d" 0 6 34 16923 -12 -1
+} {0     6                    34                   16923                -12                 }
+test format-1.15.1 {integer formatting} longIs64bit {
+    format "%-#5d %-#20d %-#20d %-#20d %-#20d" 0 6 34 16923 -12 -1
+} {0     6                    34                   16923                -12                 }
+
 
 test format-2.1 {string formatting} {
     format "%s %s %c %s" abcd {This is a very long test string.} 120 x
@@ -136,20 +156,26 @@ test format-3.2 {Tcl_FormatObjCmd: international character formatting} {
     format "|%c|%0c|%-1c|%1c|%-6c|%6c|%*c|%*c|" 0xa2 0x4e4e 0x25a 0xc3 0xff08 0 3 0x6575 -4 0x4e4f
 } "|\ua2|\u4e4e|\u25a|\uc3|\uff08     |     \0|  \u6575|\u4e4f   |"
 
-test format-4.1 {e and f formats} {eformat} {
-    format "%e %e %e %e" 34.2e12 68.514 -.125 -16000. .000053
+test format-4.1 {e and f formats} {normeformat} {
+    normeformat [format "%e %e %e %e" 34.2e12 68.514 -.125 -16000. .000053]
 } {3.420000e+13 6.851400e+01 -1.250000e-01 -1.600000e+04}
-test format-4.2 {e and f formats} {eformat} {
+test format-4.2 {e and f formats} -constraints {normeformat} -body {
     format "%20e %20e %20e %20e" 34.2e12 68.514 -.125 -16000. .000053
-} {        3.420000e+13         6.851400e+01        -1.250000e-01        -1.600000e+04}
-test format-4.3 {e and f formats} {eformat} {
-    format "%.1e %.1e %.1e %.1e" 34.2e12 68.514 -.126 -16000. .000053
+} -match in -result {
+    {        3.420000e+13         6.851400e+01        -1.250000e-01        -1.600000e+04}
+    {       3.420000e+013        6.851400e+001       -1.250000e-001       -1.600000e+004}
+}
+test format-4.3 {e and f formats} {normeformat} {
+    normeformat [format "%.1e %.1e %.1e %.1e" 34.2e12 68.514 -.126 -16000. .000053]
 } {3.4e+13 6.9e+01 -1.3e-01 -1.6e+04}
-test format-4.4 {e and f formats} {eformat} {
+test format-4.4 {e and f formats} -constraints {normeformat} -body {
     format "%020e %020e %020e %020e" 34.2e12 68.514 -.126 -16000. .000053
-} {000000003.420000e+13 000000006.851400e+01 -00000001.260000e-01 -00000001.600000e+04}
-test format-4.5 {e and f formats} {eformat} {
-    format "%7.1e %7.1e %7.1e %7.1e" 34.2e12 68.514 -.126 -16000. .000053
+} -match in -result {
+    {000000003.420000e+13 000000006.851400e+01 -00000001.260000e-01 -00000001.600000e+04}
+    {00000003.420000e+013 00000006.851400e+001 -0000001.260000e-001 -0000001.600000e+004}
+}
+test format-4.5 {e and f formats} {normeformat} {
+    normeformat [format "%7.1e %7.1e %7.1e %7.1e" 34.2e12 68.514 -.126 -16000. .000053]
 } {3.4e+13 6.9e+01 -1.3e-01 -1.6e+04}
 test format-4.6 {e and f formats} {
     format "%f %f %f %f" 34.2e12 68.514 -.125 -16000. .000053
@@ -157,8 +183,8 @@ test format-4.6 {e and f formats} {
 test format-4.7 {e and f formats} {
     format "%.4f %.4f %.4f %.4f %.4f" 34.2e12 68.514 -.125 -16000. .000053
 } {34200000000000.0000 68.5140 -0.1250 -16000.0000 0.0001}
-test format-4.8 {e and f formats} {eformat} {
-    format "%.4e %.5e %.6e" -9.99996 -9.99996 9.99996
+test format-4.8 {e and f formats} {normeformat} {
+    normeformat [format "%.4e %.5e %.6e" -9.99996 -9.99996 9.99996]
 } {-1.0000e+01 -9.99996e+00 9.999960e+00}
 test format-4.9 {e and f formats} {
     format "%.4f %.5f %.6f" -9.99996 -9.99996 9.99996
@@ -169,8 +195,8 @@ test format-4.10 {e and f formats} {
 test format-4.11 {e and f formats} {
     format "%-020f %020f" -9.99996 -9.99996 9.99996
 } {-9.999960            -000000000009.999960}
-test format-4.12 {e and f formats} {eformat} {
-    format "%.0e %#.0e" -9.99996 -9.99996 9.99996
+test format-4.12 {e and f formats} {normeformat} {
+    normeformat [format "%.0e %#.0e" -9.99996 -9.99996 9.99996]
 } {-1e+01 -1.e+01}
 test format-4.13 {e and f formats} {
     format "%.0f %#.0f" -9.99996 -9.99996 9.99996
@@ -185,11 +211,11 @@ test format-4.16 {e and f formats} {
     format "%3.1f %3.1f %3.1f %3.1f" 0.0 0.1 0.01 0.001
 } {0.0 0.1 0.0 0.0}
 
-test format-5.1 {g-format} {eformat} {
-    format "%.3g" 12341.0
+test format-5.1 {g-format} {normeformat} {
+    normeformat [format "%.3g" 12341.0]
 } {1.23e+04}
-test format-5.2 {g-format} {eformat} {
-    format "%.3G" 1234.12345
+test format-5.2 {g-format} {normeformat} {
+    normeformat [format "%.3G" 1234.12345]
 } {1.23E+03}
 test format-5.3 {g-format} {
     format "%.3g" 123.412345
@@ -215,11 +241,11 @@ test format-5.9 {g-format} {
 test format-5.10 {g-format} {
     format "%.3g" .00012341
 } {0.000123}
-test format-5.11 {g-format} {eformat} {
-    format "%.3g" .00001234
+test format-5.11 {g-format} {normeformat} {
+    normeformat [format "%.3g" .00001234]
 } {1.23e-05}
-test format-5.12 {g-format} {eformat} {
-    format "%.4g" 9999.6
+test format-5.12 {g-format} {normeformat} {
+    normeformat [format "%.4g" 9999.6]
 } {1e+04}
 test format-5.13 {g-format} {
     format "%.4g" 999.96
@@ -236,31 +262,33 @@ test format-5.16 {g-format} {
 test format-5.17 {g-format} {
     format "%.3g" .001
 } {0.001}
-test format-5.18 {g-format} {eformat} {
-    format "%.3g" .00001
+test format-5.18 {g-format} {normeformat} {
+    normeformat [format "%.3g" .00001]
 } {1e-05}
-test format-5.19 {g-format} {eformat} {
-    format "%#.3g" 1234.0
+test format-5.19 {g-format} {normeformat} {
+    normeformat [format "%#.3g" 1234.0]
 } {1.23e+03}
-test format-5.20 {g-format} {eformat} {
-    format "%#.3G" 9999.5
+test format-5.20 {g-format} {normeformat} {
+    normeformat [format "%#.3G" 9999.5]
 } {1.00E+04}
 
-test format-6.1 {floating-point zeroes} {eformat} {
-    format "%e %f %g" 0.0 0.0 0.0 0.0
+test format-6.1 {floating-point zeroes} {normeformat} {
+    normeformat [format "%e %f %g" 0.0 0.0 0.0 0.0]
 } {0.000000e+00 0.000000 0}
-test format-6.2 {floating-point zeroes} {eformat} {
-    format "%.4e %.4f %.4g" 0.0 0.0 0.0 0.0
+test format-6.2 {floating-point zeroes} {normeformat} {
+    normeformat [format "%.4e %.4f %.4g" 0.0 0.0 0.0 0.0]
 } {0.0000e+00 0.0000 0}
-test format-6.3 {floating-point zeroes} {eformat knownMsvcBug} {
-    format "%#.4e %#.4f %#.4g" 0.0 0.0 0.0 0.0
-} {0.0000e+00 0.0000 0.000}
-test format-6.4 {floating-point zeroes} {eformat} {
-    format "%.0e %.0f %.0g" 0.0 0.0 0.0 0.0
+test format-6.3 {floating-point zeroes} -constraints {normeformat} -body {
+    # note %#.NNNg is compiler resp. stdlib depended:
+    normeformat [format "%#.4e %#.4f %#.4g" 0.0 0.0 0.0 0.0]
+} -match in -result {{0.0000e+00 0.0000 0.0000} {0.0000e+00 0.0000 0.000}}
+test format-6.4 {floating-point zeroes} {normeformat} {
+    normeformat [format "%.0e %.0f %.0g" 0.0 0.0 0.0 0.0]
 } {0e+00 0 0}
-test format-6.5 {floating-point zeroes} {eformat knownMsvcBug} {
-    format "%#.0e %#.0f %#.0g" 0.0 0.0 0.0 0.0
-} {0.e+00 0. 0.}
+test format-6.5 {floating-point zeroes} -constraints {normeformat} -body {
+    # note %#.NNNg is compiler resp. stdlib depended:
+    normeformat [format "%#.0e %#.0f %#.0g" 0.0 0.0 0.0 0.0]
+} -match in -result {{0.e+00 0. 0.} {0.e+00 0. 0.0}}
 test format-6.6 {floating-point zeroes} {
     format "%3.0f %3.0f %3.0f %3.0f" 0.0 0.0 0.0 0.0
 } {  0   0   0   0}
@@ -526,20 +554,23 @@ test format-17.3 {testing %ld with non-wide} {wideIs64bit} {
 test format-17.4 {testing %l with non-integer} {
     format %lf 1
 } 1.000000
+test format-17.5 {testing %llu with positive bignum} -body {
+    format %llu 0xabcdef0123456789abcdef
+} -returnCodes 1 -result {unsigned bignum format is invalid}
+test format-17.6 {testing %llu with negative number} -body {
+    format %llu -1
+} -returnCodes 1 -result {unsigned bignum format is invalid}
 
 test format-18.1 {do not demote existing numeric values} {
     set a 0xaaaaaaaa
     # Ensure $a and $b are separate objects
     set b 0xaaaa
     append b aaaa
-
     set result [expr {$a == $b}]
     format %08lx $b
     lappend result [expr {$a == $b}]
-
     set b 0xaaaa
     append b aaaa
-
     lappend result [expr {$a == $b}]
     format %08x $b
     lappend result [expr {$a == $b}]
@@ -550,18 +581,13 @@ test format-18.2 {do not demote existing numeric values} {wideBiggerThanInt} {
     list [format %08x $a] [expr {$a == $b}]
 } {aaaaaaab 1}
 
-test format-19.1 {
-    regression test - tcl-core message by Brian Griffin on
-    26 0ctober 2004
-} -body {
+test format-19.1 {regression test - tcl-core message by Brian Griffin on 26 0ctober 2004} -body {
     set x 0x8fedc654
     list [expr { ~ $x }] [format %08x [expr { ~$x }]]
 } -match regexp -result {-2414724693 f*701239ab}
-
 test format-19.2 {Bug 1867855} {
     format %llx 0
 } 0
-
 test format-19.3 {Bug 2830354} {
     string length [format %340f 0]
 } 340
