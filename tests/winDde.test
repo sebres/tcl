@@ -19,10 +19,15 @@ testConstraint debug [::tcl::pkgconfig get debug]
 testConstraint dde 0
 if {[testConstraint win]} {
     if {![catch {
-	    ::tcltest::loadTestedCommands
-	    set ::ddever [package require dde 1.4.1]
-	    set ::ddelib [lindex [package ifneeded dde $::ddever] 1]}]} {
-	testConstraint dde 1
+	::tcltest::loadTestedCommands
+	set ::ddever [package require dde 1.4.1]
+	set ::ddelib [lindex [package ifneeded dde $::ddever] 1]
+	# may be a dll-file name only (e. g. if tests running in temp-dir, try it relative executable):
+	if {![file isfile $::ddelib]} {
+	    set ::ddelib [file join [file dirname [info nameofexecutable]] $::ddelib]
+	}
+    }]} {
+	testConstraint dde [file isfile $::ddelib]
     }
 }
 

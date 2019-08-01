@@ -743,6 +743,16 @@ namespace eval tcltest {
     } AcceptBoolean singleProcess
 
     proc AcceptTemporaryDirectory { directory } {
+	# boolean value (true) signaling we use temp directory as working directory too:
+	if {[string is boolean -strict $directory] && $directory} {
+	    if {[info exists ::env(TEMP)]} {
+		set directory $::env(TEMP)
+	    } else {
+		set directory /tmp
+	    }
+	    workingDirectory $directory
+	    return $directory
+	}
 	set directory [AcceptAbsolutePath $directory]
 	if {![file exists $directory]} {
 	    file mkdir $directory

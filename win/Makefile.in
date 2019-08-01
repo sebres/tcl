@@ -99,7 +99,7 @@ MAN2TCLFLAGS =		@MAN2TCLFLAGS@
 
 SRC_DIR			= @srcdir@
 ROOT_DIR		= @srcdir@/..
-TOP_DIR			= $(shell cd @srcdir@/..; pwd -P)
+TOP_DIR			= $(shell cd @srcdir@/..; pwd -W || pwd -P)
 GENERIC_DIR		= $(TOP_DIR)/generic
 TOMMATH_DIR		= $(TOP_DIR)/libtommath
 WIN_DIR			= $(TOP_DIR)/win
@@ -397,7 +397,7 @@ all: binaries libraries doc
 # or from mingw/msys shell:
 #   $ ./tcltest -verbose bps -file fileName.test
 
-tcltest.cmd:
+tcltest-cmd:
 	@echo 'Create tcltest.cmd helpers';
 	@(\
 	  echo '@echo off'; \
@@ -405,8 +405,8 @@ tcltest.cmd:
 	  echo 'set BDP=%~dp0'; \
 	  echo 'set OWD=%CD%'; \
 	  echo 'cd /d %TEMP%'; \
-	  echo 'rem "%BDP%\$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_FACILITIES)" %*'; \
-	  echo '"%BDP%\$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_PRMS)" %*'; \
+	  echo 'rem "%BDP%\$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" %TESTFLAGS% -load "$(TEST_LOAD_FACILITIES)" %*'; \
+	  echo '"%BDP%\$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" %TESTFLAGS% -load "$(TEST_LOAD_PRMS)" %*'; \
 	  echo 'cd /d %OWD%'; \
 	) > tcltest.cmd;
 	@(\
@@ -414,11 +414,13 @@ tcltest.cmd:
 	  echo '#LANG=en_US'; \
 	  echo 'BDP=$$(dirname $$(readlink -f %0))'; \
 	  echo 'cd /tmp'; \
-	  echo '#"$$BDP/$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_FACILITIES)" "$$@"'; \
-	  echo '"$$BDP/$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $(TESTFLAGS) -load "$(TEST_LOAD_PRMS)" "$$@"'; \
-	) > tcltest;
+	  echo '#"$$BDP/$(TCLSH)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $$TESTFLAGS -load "$(TEST_LOAD_FACILITIES)" "$$@"'; \
+	  echo '"$$BDP/$(TEST_EXE_FILE)" "$(ROOT_DIR_WIN_NATIVE)/tests/all.tcl" $$TESTFLAGS -load "$(TEST_LOAD_PRMS)" "$$@"'; \
+	) > tcltest.sh;
+tcltest.sh: tcltest-cmd
+tcltest.cmd: tcltest-cmd
 
-tcltest: $(TCLSH) $(TEST_EXE_FILE) tcltest.cmd
+tcltest: binaries $(TEST_EXE_FILE) tcltest-cmd
 
 binaries: $(TCL_STUB_LIB_FILE) @LIBRARIES@ winextensions $(TCLSH)
 
@@ -707,13 +709,13 @@ install-private-headers: libraries
 
 test: test-tcl test-packages
 
-test-tcl: binaries $(TCLSH) $(CAT32)
+test-tcl: binaries $(TCLSH) $(TEST_EXE_FILE)
 	TCL_LIBRARY="$(LIBRARY_DIR)"; export TCL_LIBRARY; \
 	./$(TEST_EXE_FILE) "$(ROOT_DIR_NATIVE)/tests/all.tcl" $(TESTFLAGS) \
-	-load "$(TEST_LOAD_FACILITIES)" | ./$(CAT32)
+	-load "$(TEST_LOAD_FACILITIES)"
 
 # Useful target to launch a built tclsh with the proper path,...
-runtest: binaries $(TCLSH)
+runtest: binaries $(TCLSH) $(TEST_EXE_FILE)
 	@TCL_LIBRARY="$(LIBRARY_DIR)"; export TCL_LIBRARY; \
 	./$(TEST_EXE_FILE) $(TESTFLAGS) -load "$(TEST_LOAD_FACILITIES)" $(SCRIPT)
 
