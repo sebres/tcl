@@ -164,8 +164,8 @@ Tcl_AsyncMark(
 
     Tcl_MutexLock(&token->originTsd->asyncMutex);
     token->ready = 1;
+    token->originTsd->asyncReady++;
     if (!token->originTsd->asyncActive) {
-	token->originTsd->asyncReady = 1;
 	Tcl_ThreadAlert(token->originThrdId);
     }
     Tcl_MutexUnlock(&token->originTsd->asyncMutex);
@@ -201,13 +201,11 @@ Tcl_AsyncInvoke(
     AsyncHandler *asyncPtr;
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
 
-    Tcl_MutexLock(&tsdPtr->asyncMutex);
-
-    if (tsdPtr->asyncReady == 0) {
-	Tcl_MutexUnlock(&tsdPtr->asyncMutex);
+    if (!tsdPtr->asyncReady) {
 	return code;
     }
-    tsdPtr->asyncReady = 0;
+
+    Tcl_MutexLock(&tsdPtr->asyncMutex);
     tsdPtr->asyncActive = 1;
     if (interp == NULL) {
 	code = 0;
@@ -223,7 +221,7 @@ Tcl_AsyncInvoke(
      * safe to continue down the list anyway.
      */
 
-    while (1) {
+    while (tsdPtr->asyncReady) {
 	for (asyncPtr = tsdPtr->firstHandler; asyncPtr != NULL;
 		asyncPtr = asyncPtr->nextPtr) {
 	    if (asyncPtr->ready) {
@@ -234,6 +232,7 @@ Tcl_AsyncInvoke(
 	    break;
 	}
 	asyncPtr->ready = 0;
+	tsdPtr->asyncReady--;
 	Tcl_MutexUnlock(&tsdPtr->asyncMutex);
 	code = (*asyncPtr->proc)(asyncPtr->clientData, interp, code);
 	Tcl_MutexLock(&tsdPtr->asyncMutex);
@@ -336,7 +335,7 @@ int
 Tcl_AsyncReady(void)
 {
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
-    return tsdPtr->asyncReady;
+    return tsdPtr->asyncReady != 0;
 }
 
 int *

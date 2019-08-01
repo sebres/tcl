@@ -55,6 +55,7 @@ static Tcl_Interp *delInterp;
 typedef struct TestAsyncHandler {
     int id;			/* Identifier for this handler. */
     Tcl_AsyncHandler handler;	/* Tcl's token for the handler. */
+    Tcl_Interp *interp;		/* Interpreter where command to be invoked. */
     char *command;		/* Command to invoke when the handler is
 				 * invoked. */
     struct TestAsyncHandler *nextPtr;
@@ -802,6 +803,7 @@ TestasyncCmd(
 	    goto wrongNumArgs;
 	}
 	asyncPtr = (TestAsyncHandler *) ckalloc(sizeof(TestAsyncHandler));
+	asyncPtr->interp = interp;
 	asyncPtr->command = ckalloc(strlen(argv[2]) + 1);
 	strcpy(asyncPtr->command, argv[2]);
         Tcl_MutexLock(&asyncTestMutex);
@@ -871,28 +873,29 @@ TestasyncCmd(
 	return code;
 #ifdef TCL_THREADS
     } else if (strcmp(argv[1], "marklater") == 0) {
-	if (argc != 3) {
+    	int i;
+    	int *ids;
+	Tcl_ThreadId threadID;
+	if (argc < 3) {
 	    goto wrongNumArgs;
 	}
-	if (Tcl_GetInt(interp, argv[2], &id) != TCL_OK) {
-	    return TCL_ERROR;
-	}
-        Tcl_MutexLock(&asyncTestMutex);
-	for (asyncPtr = firstHandler; asyncPtr != NULL;
-		asyncPtr = asyncPtr->nextPtr) {
-	    if (asyncPtr->id == id) {
-		Tcl_ThreadId threadID;
-		if (Tcl_CreateThread(&threadID, AsyncThreadProc,
-			(ClientData) INT2PTR(id), TCL_THREAD_STACK_DEFAULT,
-			TCL_THREAD_NOFLAGS) != TCL_OK) {
-		    Tcl_SetResult(interp, "can't create thread", TCL_STATIC);
-		    Tcl_MutexUnlock(&asyncTestMutex);
-		    return TCL_ERROR;
-		}
-		break;
+	argc -= 2;
+	argv += 2;
+        ids = (int*)ckalloc(sizeof(int)*(argc+1));
+	for (i = 0; i < argc; i++) {
+	    if (Tcl_GetInt(interp, argv[i], &ids[i]) != TCL_OK) {
+	    	ckfree((char *)ids);
+		return TCL_ERROR;
 	    }
 	}
-        Tcl_MutexUnlock(&asyncTestMutex);
+	ids[i] = 0;
+	if (Tcl_CreateThread(&threadID, AsyncThreadProc,
+		(ClientData) ids, TCL_THREAD_STACK_DEFAULT,
+		TCL_THREAD_NOFLAGS) != TCL_OK) {
+	    Tcl_SetResult(interp, "can't create thread", TCL_STATIC);
+	    ckfree((char *)ids);
+	    return TCL_ERROR;
+	}
     } else {
 	Tcl_AppendResult(interp, "bad option \"", argv[1],
 		"\": must be create, delete, int, mark, or marklater", NULL);
@@ -917,36 +920,40 @@ AsyncHandlerProc(
 {
     TestAsyncHandler *asyncPtr;
     int id = PTR2INT(clientData);
-    const char *listArgv[4], *cmd;
+    const char *listArgv[4], *cmd = NULL;
     char string[TCL_INTEGER_SPACE];
 
     Tcl_MutexLock(&asyncTestMutex);
     for (asyncPtr = firstHandler; asyncPtr != NULL;
          asyncPtr = asyncPtr->nextPtr) {
-        if (asyncPtr->id == id) break;
+        if (asyncPtr->id == id) {
+	    cmd = asyncPtr->command;
+	    interp = asyncPtr->interp ? asyncPtr->interp : interp;
+	    break;
+	}
     }
     Tcl_MutexUnlock(&asyncTestMutex);
 
-    if (!asyncPtr) {
-        /* Woops - this one was deleted between the AsyncMark and now */
+    if (!cmd) {
+        /* not found - it was deleted between the AsyncMark and now */
         return TCL_OK;
     }
 
-    TclFormatInt(string, code);
-    listArgv[0] = asyncPtr->command;
-    listArgv[1] = Tcl_GetString(Tcl_GetObjResult(interp));
-    listArgv[2] = string;
-    listArgv[3] = NULL;
-    cmd = Tcl_Merge(3, listArgv);
     if (interp != NULL) {
+	TclFormatInt(string, code);
+	listArgv[0] = cmd;
+	listArgv[1] = interp ? Tcl_GetString(Tcl_GetObjResult(interp)) : "";
+	listArgv[2] = string;
+	listArgv[3] = NULL;
+	cmd = Tcl_Merge(3, listArgv);
 	code = Tcl_Eval(interp, cmd);
+	ckfree((char *)cmd);
     } else {
 	/*
 	 * this should not happen, but by definition of how async handlers are
 	 * invoked, it's possible.  Better error checking is needed here.
 	 */
     }
-    ckfree((char *)cmd);
     return code;
 }
 
@@ -973,18 +980,25 @@ AsyncThreadProc(
 				 * TestAsyncHandler, defined above. */
 {
     TestAsyncHandler *asyncPtr;
-    int id = PTR2INT(clientData);
-
-    Tcl_Sleep(1);
-    Tcl_MutexLock(&asyncTestMutex);
-    for (asyncPtr = firstHandler; asyncPtr != NULL;
-         asyncPtr = asyncPtr->nextPtr) {
-        if (asyncPtr->id == id) {
-            Tcl_AsyncMark(asyncPtr->handler);
-            break;
-        }
+    int *ids = (int*)clientData;
+    
+    while (*ids) {
+	int id = *ids;
+	Tcl_Sleep(1);
+	Tcl_MutexLock(&asyncTestMutex);
+	for (asyncPtr = firstHandler; asyncPtr != NULL;
+	     asyncPtr = asyncPtr->nextPtr
+	) {
+	    if (asyncPtr->id == id) {
+		Tcl_AsyncMark(asyncPtr->handler);
+		break;
+	    }
+	}
+	Tcl_MutexUnlock(&asyncTestMutex);
+	ids++;
     }
-    Tcl_MutexUnlock(&asyncTestMutex);
+
+    ckfree((char *)clientData);
     Tcl_ExitThread(TCL_OK);
     TCL_THREAD_CREATE_RETURN;
 }

@@ -92,19 +92,20 @@ test async-1.7 {basic async handlers} testasync {
 
 proc mult1 {result code} {
     global x
-    lappend x mult1
+    lappend x m1:mult1
     return -code 7 mult1
 }
 proc mult2 {result code} {
     global x
-    lappend x mult2
+    lappend x m2:mult2
     return -code 9 mult2
 }
 proc mult3 {result code} {
     global x hm1 hm2
-    lappend x [catch {testasync mark $hm2 serial2 0}]
-    lappend x [catch {testasync mark $hm1 serial1 0}]
-    lappend x mult3
+    lappend x m3:start
+    lappend x m3:[catch {testasync mark $hm2 serial2 0} msg] $msg
+    lappend x m3:[catch {testasync mark $hm1 serial1 0} msg] $msg
+    lappend x m3:end
     return -code 11 mult3
 }
 if {[testConstraint testasync]} {
@@ -115,7 +116,7 @@ if {[testConstraint testasync]} {
 test async-2.1 {multiple handlers} testasync {
     set x {}
     list [catch {testasync mark $hm3 "foobar" 5} msg] $msg $x
-} {9 mult2 {0 0 mult3 mult1 mult2}}
+} {11 mult3 {m3:start m2:mult2 m3:9 mult2 m1:mult1 m3:7 mult1 m3:end}}
 
 proc del1 {result code} {
     global x hm1 hm2 hm3 hm4
@@ -145,7 +146,7 @@ if {[testConstraint testasync]} {
 test async-3.1 {deleting handlers} testasync {
     set x {}
     list [catch {testasync mark $hm2 "foobar" 5} msg] $msg $x
-} {3 del2 {0 0 0 del1 del2}}
+} {13 del1 {m2:mult2 9 m1:mult1 7 del2 3 del1}}
 
 test async-4.1 {async interrupting bytecode sequence} -constraints {
     testasync threaded
@@ -201,19 +202,45 @@ test async-4.2 {async interrupting straight bytecode sequence} -constraints {
     after 100
     testasync delete $hm
 }
+
+proc awaitasync {result code} {
+    global aresult
+    if {[info exists aresult] && [string is integer -strict $aresult] && [incr aresult] < 10} {
+	# touch only ("wait" for increment block entering)
+    } else {
+	set aresult "test pattern"
+    }
+    return -code $code $result
+}
+
 test async-4.3 {async interrupting loop-less bytecode sequence} -constraints {
     testasync threaded
 } -setup {
-    set hm [testasync create async3]
+    set hm [testasync create awaitasync]
 } -body {
-    apply [list {handle} [concat {
-	global aresult
-	set aresult {Async event not delivered}
-	testasync marklater $handle
-	set i 0
-    } "[string repeat {;incr i;} 1500000]after 10;" {
-	return $aresult
-    }]] $hm
+    if {[catch {
+	set ev [after 3000 {set ::aresult timeout}]
+	apply [list {handle} [concat {
+	    upvar ::aresult i
+	    set i 0
+	    # generate a serie to notify tcl-thread about async worker is there 
+	    # and to be sure we entering loop-less bytecode sequence (and event
+	    # generated during the TEBC evaluation):
+	    testasync marklater {*}[lrepeat 10 $handle]
+	    # wait for worker gets started (any of first 9 from serie above):
+	    if {$::aresult == 0} { vwait ::aresult }
+	    # enter loop-less block (of incr's):
+	    incr i
+	} "[string repeat {;incr i} 1500000];" {
+	    return $i
+	}]] $hm
+    } e opt]} {
+	after cancel $ev
+	if {$aresult ne "test pattern"} {
+	     return {*}$opt $e
+	}
+    }
+    set aresult
 } -result {test pattern} -cleanup {
     # give other threads some time to go way so that valgrind doesn't pick up
     # "still reachable" cases from early thread termination

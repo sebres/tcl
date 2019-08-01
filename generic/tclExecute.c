@@ -1970,7 +1970,7 @@ TclExecuteByteCode(
     if ((instructionCount++ & ASYNC_CHECK_COUNT_MASK) == 0) {
 	/*
 	 * Check for asynchronous handlers [Bug 746722]; we do the check every
-	 * ASYNC_CHECK_COUNT_MASK instruction, of the form (2**n-<1).
+	 * ASYNC_CHECK_COUNT_MASK instruction, of the form (2**n-1).
 	 */
 
 	if (TclAsyncReady(iPtr)) {
