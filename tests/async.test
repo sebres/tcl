@@ -21,6 +21,17 @@ testConstraint threaded [expr {
     [info exists ::tcl_platform(threaded)] && $::tcl_platform(threaded)
 }]
 
+proc wait_4_valgrind {} {
+    # @ people using valgrind: please define env variable VALGRIND=1,
+    # or we can include it in some constraint...
+    # or simply provide better valgrind detection.
+    if {[info exists ::env(VALGRIND)] && $::env(VALGRIND)} {
+        # give other threads some time to go way so that valgrind doesn't pick up
+        # "still reachable" cases from early thread termination
+	after 100
+    }
+}
+
 proc async1 {result code} {
     global aresult acode
     set aresult $result
@@ -116,7 +127,7 @@ if {[testConstraint testasync]} {
 test async-2.1 {multiple handlers} testasync {
     set x {}
     list [catch {testasync mark $hm3 "foobar" 5} msg] $msg $x
-} {11 mult3 {m3:start m2:mult2 m3:9 mult2 m1:mult1 m3:7 mult1 m3:end}}
+} {7 mult1 {m3:start m3:0 serial2 m3:0 serial1 m3:end m2:mult2 m1:mult1}}
 
 proc del1 {result code} {
     global x hm1 hm2 hm3 hm4
@@ -146,7 +157,7 @@ if {[testConstraint testasync]} {
 test async-3.1 {deleting handlers} testasync {
     set x {}
     list [catch {testasync mark $hm2 "foobar" 5} msg] $msg $x
-} {13 del1 {m2:mult2 9 m1:mult1 7 del2 3 del1}}
+} {3 del2 {0 0 0 del1 del2}}
 
 test async-4.1 {async interrupting bytecode sequence} -constraints {
     testasync threaded
@@ -157,24 +168,22 @@ test async-4.1 {async interrupting bytecode sequence} -constraints {
     }
 } -body {
     apply {{handle} {
-    global aresult
-    set aresult {Async event not delivered}
-    testasync marklater $handle
-    # allow plenty of time to pass in case valgrind is running
-    set start [clock seconds]
-    while {
-	[clock seconds] - $start < 180 && $aresult eq "Async event not delivered"
-    } {
-	# be less busy
-	after 100
-	nothing
-    }
+	global aresult
+	set aresult {Async event not delivered}
+	testasync marklater $handle
+	# allow plenty of time to pass in case valgrind is running
+	set start [clock milliseconds]
+	while {
+	    [clock milliseconds] - $start < 10000 && $aresult eq "Async event not delivered"
+	} {
+	    # be less busy
+	    after 10
+	    nothing
+	}
 	return $aresult
     }} $hm
 } -result {test pattern} -cleanup {
-    # give other threads some time to go way so that valgrind doesn't pick up
-    # "still reachable" cases from early thread termination
-    after 100
+    wait_4_valgrind
     testasync delete $hm
 }
 test async-4.2 {async interrupting straight bytecode sequence} -constraints {
@@ -187,66 +196,120 @@ test async-4.2 {async interrupting straight bytecode sequence} -constraints {
 	set aresult {Async event not delivered}
 	testasync marklater $handle
 	# allow plenty of time to pass in case valgrind is running
-	set start [clock seconds]
+	set start [clock milliseconds]
 	while {
-		[clock seconds] - $start < 180 && $aresult eq "Async event not delivered"
+	    [clock milliseconds] - $start < 10000 && $aresult eq "Async event not delivered"
 	} {
-		# be less busy
-	    after 100
+	    # be less busy
+	    after 10
 	}
 	return $aresult
     }} $hm
 } -result {test pattern} -cleanup {
-    # give other threads some time to go way so that valgrind doesn't pick up
-    # "still reachable" cases from early thread termination
-    after 100
+    wait_4_valgrind
     testasync delete $hm
 }
 
-proc awaitasync {result code} {
-    global aresult
-    if {[info exists aresult] && [string is integer -strict $aresult] && [incr aresult] < 10} {
-	# touch only ("wait" for increment block entering)
-    } else {
-	set aresult "test pattern"
-    }
-    return -code $code $result
+if {[namespace which -command async_4_awaittest] eq ""} {
+proc async_4_awaittest {handle} [concat {
+    upvar ::aresult i
+    set i 0
+    # generate a serie to notify tcl-thread about async worker is there 
+    # and to be sure we entering loop-less bytecode sequence (and event
+    # generated during the TEBC evaluation):
+    testasync marklater {*}[lrepeat 10 $handle]
+    # wait for worker gets started (any of first 9 from serie above):
+    if {$::aresult == 0} { vwait ::aresult }
+    # enter loop-less block (of incr's):
+    incr i
+} "[string repeat {;incr i} 1500000];" {
+    return $i
+}]
 }
-
 test async-4.3 {async interrupting loop-less bytecode sequence} -constraints {
     testasync threaded
 } -setup {
-    set hm [testasync create awaitasync]
+    set ev [after 10000 {set ::aresult "timeout"}]
+    set hm [testasync create {apply {{result code} {
+	global aresult
+	if {[info exists aresult] && [string is integer -strict $aresult] && [incr aresult] < 10} {
+	    # touch only ("wait" for increment block entering)
+	} else {
+	    # signal stop: this should produce an (expected) error in some of [incr i] below
+	    set aresult "test pattern"
+	}
+	return -code $code $result
+    }}}]
 } -body {
     if {[catch {
-	set ev [after 3000 {set ::aresult timeout}]
-	apply [list {handle} [concat {
-	    upvar ::aresult i
-	    set i 0
-	    # generate a serie to notify tcl-thread about async worker is there 
-	    # and to be sure we entering loop-less bytecode sequence (and event
-	    # generated during the TEBC evaluation):
-	    testasync marklater {*}[lrepeat 10 $handle]
-	    # wait for worker gets started (any of first 9 from serie above):
-	    if {$::aresult == 0} { vwait ::aresult }
-	    # enter loop-less block (of incr's):
-	    incr i
-	} "[string repeat {;incr i} 1500000];" {
-	    return $i
-	}]] $hm
+	async_4_awaittest $hm
     } e opt]} {
-	after cancel $ev
-	if {$aresult ne "test pattern"} {
+	# error "expected integer" (cannot increment) is expected:
+	if {![string match "expected integer*" $e] || $aresult ne "test pattern"} {
 	     return {*}$opt $e
 	}
     }
     set aresult
 } -result {test pattern} -cleanup {
-    # give other threads some time to go way so that valgrind doesn't pick up
-    # "still reachable" cases from early thread termination
-    after 100
+    after cancel $ev
+    wait_4_valgrind
     testasync delete $hm
 }
+
+if {[tcltest::configure -singleproc]} {
+    rename async_4_awaittest {}
+}
+
+# Following tests covering correct order of async events (FIFO), as precedence
+# of marking order over creation order, as well as correct epoch recognition 
+# during nested evaluation of Tcl_AsyncInvoke (nested in TEBC/Tcl_DoOneEvent/etc),
+# all async events should be definitely processed in same order as they have
+# been marked, no idirect nested wait in async-events is and should be possible).
+
+set async_5_test(test) {-constraints {
+    testasync threaded
+} -setup {
+    set ev [after 10000 {set ::aresult "timeout"}]
+    set ::aresult {}
+    for {set i 0} {$i < 10} {incr i} {
+	set hms($i) [testasync create [list apply \
+	    [list [list result code [list i $i]] {
+		lappend ::aresult $i
+		return -code $code $result
+	    }]
+	]]
+    }
+} -body {
+    global async_5_test
+    # mark all events in serie in certain order:
+    testasync marklater \
+	$hms(5) $hms(4) $hms(3) $hms(2) $hms(1) \
+	$hms(0) $hms(6) $hms(7) $hms(8) $hms(9)
+    # short pause should force worker mark all events at all:
+    if {$async_5_test(retardProcess)} {
+	after 50; # all events should be marked in 50ms
+    }
+    # enter processing:
+    while {[llength $::aresult] < 10 && "timeout" ni $::aresult} {
+	vwait ::aresult
+    }
+    # all events seems to be processed, check order:
+    set ::aresult
+} -result {5 4 3 2 1 0 6 7 8 9} -cleanup {
+    after cancel $ev
+    wait_4_valgrind
+    for {set i 0} {$i < 10} {incr i} {
+	testasync delete $hms($i)
+    }
+    unset -nocomplain hms i ::aresult ev
+}}
+
+set async_5_test(retardProcess) 0
+test async-5.1 {async order of event marks FIFO precedence (during processing)} {*}$async_5_test(test)
+set async_5_test(retardProcess) 1
+test async-5.2 {async order of event marks FIFO precedence (before processing)} {*}$async_5_test(test)
+
+unset async_5_test
 
 # cleanup
 if {[testConstraint testasync]} {

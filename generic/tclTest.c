@@ -920,8 +920,8 @@ AsyncHandlerProc(
 {
     TestAsyncHandler *asyncPtr;
     int id = PTR2INT(clientData);
-    const char *listArgv[4], *cmd = NULL;
-    char string[TCL_INTEGER_SPACE];
+    const char *cmd = NULL;
+    Tcl_Obj * cmdPtr;
 
     Tcl_MutexLock(&asyncTestMutex);
     for (asyncPtr = firstHandler; asyncPtr != NULL;
@@ -940,14 +940,24 @@ AsyncHandlerProc(
     }
 
     if (interp != NULL) {
-	TclFormatInt(string, code);
-	listArgv[0] = cmd;
-	listArgv[1] = interp ? Tcl_GetString(Tcl_GetObjResult(interp)) : "";
-	listArgv[2] = string;
-	listArgv[3] = NULL;
-	cmd = Tcl_Merge(3, listArgv);
-	code = Tcl_Eval(interp, cmd);
-	ckfree((char *)cmd);
+    	cmdPtr = Tcl_NewStringObj(cmd, -1);
+    	Tcl_IncrRefCount(cmdPtr);
+
+	if (Tcl_ListObjAppendElement(interp, cmdPtr,
+		Tcl_GetObjResult(interp)) != TCL_OK
+	) {
+	    code = TCL_ERROR;
+	    goto done;
+	}
+	if (Tcl_ListObjAppendElement(interp, cmdPtr,
+		Tcl_ObjPrintf("%d", code)) != TCL_OK
+	) {
+	    code = TCL_ERROR;
+	    goto done;
+	}
+	code = Tcl_EvalObjEx(interp, cmdPtr, 0);
+    done:
+	Tcl_DecrRefCount(cmdPtr);
     } else {
 	/*
 	 * this should not happen, but by definition of how async handlers are
@@ -984,7 +994,24 @@ AsyncThreadProc(
     
     while (*ids) {
 	int id = *ids;
-	Tcl_Sleep(1);
+	Tcl_Time now;
+	double endTime;
+	/*
+	 * Tcl_Sleep is too heavy - even large TEBC blocks (e. g. async-4.3) 
+	 * could be faster as 16ms (min-wait time on some platforms), 
+	 * and without wait we could mark the event(s) unexpected too fast,
+	 * so simple busy-wait for 0.5 millisecond is enough:
+	 * TODO: use monotonic time or usleep here (if this branch becomes merged later).
+	 */
+	Tcl_GetTime(&now);
+	endTime = (double)now.sec * 1000 + (double)now.usec / 1000 + 0.5;
+	while (1) {
+	    Tcl_GetTime(&now);
+	    if ((double)now.sec * 1000 + (double)now.usec / 1000 > endTime) {
+		break;
+	    }
+	}
+	/* find async-event by ID and mark it */
 	Tcl_MutexLock(&asyncTestMutex);
 	for (asyncPtr = firstHandler; asyncPtr != NULL;
 	     asyncPtr = asyncPtr->nextPtr

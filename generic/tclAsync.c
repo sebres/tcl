@@ -13,6 +13,7 @@
  */
 
 #include "tclInt.h"
+#include <assert.h>
 
 /* Forward declaration */
 struct ThreadSpecificData;
@@ -26,6 +27,7 @@ typedef struct AsyncHandler {
 				 * invoked in the next call to
 				 * Tcl_AsyncInvoke. */
     struct AsyncHandler *nextPtr;
+    struct AsyncHandler *prevPtr;
 				/* Next in list of all handlers for the
 				 * process. */
     Tcl_AsyncProc *proc;	/* Procedure to call when handler is
@@ -48,6 +50,9 @@ typedef struct ThreadSpecificData {
     AsyncHandler *firstHandler;	/* First handler defined for process, or NULL
 				 * if none. */
     AsyncHandler *lastHandler;	/* Last handler or NULL. */
+    AsyncHandler *firstActive;	/* First active handler defined for process,
+				 * or NULL if none. */
+    AsyncHandler *lastActive;	/* Last active handler or NULL. */
     int asyncReady;		/* This is set to 1 whenever a handler becomes
 				 * ready and it is cleared to zero whenever
 				 * Tcl_AsyncInvoke is called. It can be
@@ -83,7 +88,25 @@ static Tcl_ThreadDataKey dataKey;
 void
 TclFinalizeAsync(void)
 {
+    AsyncHandler *asyncPtr;
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
+
+    /* 
+     * Normally no events anymore expected in both lists, but to be sure
+     * clean all pending events in both lists (simple to avoid mem-leaks).
+     * Possibly more safe would be just to detach (and set next/prior to NULL),
+     * buf TclFinalizeAsync is last call in Tcl_FinalizeThread, so let it be.
+     */
+    Tcl_MutexLock(&tsdPtr->asyncMutex);
+    while ((asyncPtr = tsdPtr->firstHandler) != NULL) {
+    	TclSpliceOutEx(asyncPtr, tsdPtr->firstHandler, tsdPtr->lastHandler);
+	ckfree((char *) asyncPtr);
+    }
+    while ((asyncPtr = tsdPtr->firstActive) != NULL) {
+	TclSpliceOutEx(asyncPtr, tsdPtr->firstActive, tsdPtr->lastActive);
+	ckfree((char *) asyncPtr);
+    }
+    Tcl_MutexUnlock(&tsdPtr->asyncMutex);
 
     if (tsdPtr->asyncMutex != NULL) {
 	Tcl_MutexFinalize(&tsdPtr->asyncMutex);
@@ -127,12 +150,7 @@ Tcl_AsyncCreate(
     asyncPtr->originThrdId = Tcl_GetCurrentThread();
 
     Tcl_MutexLock(&tsdPtr->asyncMutex);
-    if (tsdPtr->firstHandler == NULL) {
-	tsdPtr->firstHandler = asyncPtr;
-    } else {
-	tsdPtr->lastHandler->nextPtr = asyncPtr;
-    }
-    tsdPtr->lastHandler = asyncPtr;
+    TclSpliceTailEx(asyncPtr, tsdPtr->firstHandler, tsdPtr->lastHandler);
     Tcl_MutexUnlock(&tsdPtr->asyncMutex);
     return (Tcl_AsyncHandler) asyncPtr;
 }
@@ -160,15 +178,25 @@ void
 Tcl_AsyncMark(
     Tcl_AsyncHandler async)		/* Token for handler. */
 {
-    AsyncHandler *token = (AsyncHandler *) async;
+    AsyncHandler *asyncPtr = (AsyncHandler *) async;
+    ThreadSpecificData *tsdPtr = asyncPtr->originTsd;
 
-    Tcl_MutexLock(&token->originTsd->asyncMutex);
-    token->ready = 1;
-    token->originTsd->asyncReady++;
-    if (!token->originTsd->asyncActive) {
-	Tcl_ThreadAlert(token->originThrdId);
+    Tcl_MutexLock(&tsdPtr->asyncMutex);
+    if (asyncPtr->ready) {
+	goto done;
     }
-    Tcl_MutexUnlock(&token->originTsd->asyncMutex);
+    /* move from all handlers list to active list (FIFO, so at tail of the list) */
+    assert(!asyncPtr->ready);
+    asyncPtr->ready = 1;
+    TclSpliceOutEx(asyncPtr, tsdPtr->firstHandler, tsdPtr->lastHandler);
+    TclSpliceTailEx(asyncPtr, tsdPtr->firstActive, tsdPtr->lastActive);
+    /* notify thread if expected */
+    if (!tsdPtr->asyncActive) {
+	tsdPtr->asyncReady = (tsdPtr->firstActive != NULL);
+	Tcl_ThreadAlert(asyncPtr->originThrdId);
+    }
+done:
+    Tcl_MutexUnlock(&tsdPtr->asyncMutex);
 }
 
 /*
@@ -206,38 +234,45 @@ Tcl_AsyncInvoke(
     }
 
     Tcl_MutexLock(&tsdPtr->asyncMutex);
-    tsdPtr->asyncActive = 1;
+    tsdPtr->asyncActive++;
+    /* 
+     * Reset asyncReady to avoid unneeded recursion and unexpected sequence
+     * of async events in nested calls of Tcl_AsyncInvoke (avoids indirect 
+     * wait here). It will be restored back if active list becomes not empty.
+     */
+    tsdPtr->asyncReady = 0;
     if (interp == NULL) {
 	code = 0;
     }
 
     /*
-     * Make one or more passes over the list of handlers, invoking at most one
-     * handler in each pass. After invoking a handler, go back to the start of
-     * the list again so that (a) if a new higher-priority handler gets marked
+     * Make one or more passes over the list of active handlers, invoking at
+     * most one handler in each pass. After invoking a handler, repeat from
+     * scratch again so that (a) if a new higher-priority handler gets marked
      * while executing a lower priority handler, we execute the higher-
      * priority handler next, and (b) if a handler gets deleted during the
      * execution of a handler, then the list structure may change so it isn't
      * safe to continue down the list anyway.
      */
 
-    while (tsdPtr->asyncReady) {
-	for (asyncPtr = tsdPtr->firstHandler; asyncPtr != NULL;
-		asyncPtr = asyncPtr->nextPtr) {
-	    if (asyncPtr->ready) {
-		break;
-	    }
-	}
-	if (asyncPtr == NULL) {
-	    break;
-	}
+    while ((asyncPtr = tsdPtr->firstActive) != NULL) {
+	/* move from active list to all handlers list */
+	assert(asyncPtr->ready);
 	asyncPtr->ready = 0;
-	tsdPtr->asyncReady--;
+	TclSpliceOutEx(asyncPtr, tsdPtr->firstActive, tsdPtr->lastActive);
+	TclSpliceInEx(asyncPtr, tsdPtr->firstHandler, tsdPtr->lastHandler);
+	/* invoke event */
 	Tcl_MutexUnlock(&tsdPtr->asyncMutex);
 	code = (*asyncPtr->proc)(asyncPtr->clientData, interp, code);
 	Tcl_MutexLock(&tsdPtr->asyncMutex);
     }
-    tsdPtr->asyncActive = 0;
+    assert(tsdPtr->asyncActive > 0);
+    tsdPtr->asyncActive--;
+#if 0
+    if (!tsdPtr->asyncActive) {
+	tsdPtr->asyncReady = (tsdPtr->firstActive != NULL);
+    }
+#endif
     Tcl_MutexUnlock(&tsdPtr->asyncMutex);
     return code;
 }
@@ -272,7 +307,6 @@ Tcl_AsyncDelete(
 {
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
     AsyncHandler *asyncPtr = (AsyncHandler *) async;
-    AsyncHandler *prevPtr, *thisPtr;
 
     /*
      * Assure early handling of the constraint
@@ -290,22 +324,12 @@ Tcl_AsyncDelete(
      */
 
     Tcl_MutexLock(&tsdPtr->asyncMutex);
-    if (tsdPtr->firstHandler != NULL) {
-	prevPtr = thisPtr = tsdPtr->firstHandler;
-	while (thisPtr != NULL && thisPtr != asyncPtr) {
-	    prevPtr = thisPtr;
-	    thisPtr = thisPtr->nextPtr;
-	}
-	if (thisPtr == NULL) {
-	    Tcl_Panic("Tcl_AsyncDelete: cannot find async handler");
-	}
-	if (asyncPtr == tsdPtr->firstHandler) {
-	    tsdPtr->firstHandler = asyncPtr->nextPtr;
-	} else {
-	    prevPtr->nextPtr = asyncPtr->nextPtr;
-	}
-	if (asyncPtr == tsdPtr->lastHandler) {
-	    tsdPtr->lastHandler = prevPtr;
+    if (!asyncPtr->ready) {
+	TclSpliceOutEx(asyncPtr, tsdPtr->firstHandler, tsdPtr->lastHandler);
+    } else {
+	TclSpliceOutEx(asyncPtr, tsdPtr->firstActive, tsdPtr->lastActive);
+	if (!tsdPtr->asyncActive) {
+	    tsdPtr->asyncReady = (tsdPtr->firstActive != NULL);
 	}
     }
     Tcl_MutexUnlock(&tsdPtr->asyncMutex);
@@ -335,7 +359,7 @@ int
 Tcl_AsyncReady(void)
 {
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
-    return tsdPtr->asyncReady != 0;
+    return tsdPtr->asyncReady;
 }
 
 int *
