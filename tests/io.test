@@ -4746,7 +4746,7 @@ test io-34.20 {Tcl_Tell combined with writing} {
 } {29 39 40 447}
 proc _test_seek_tell {fn offset} {
     if {$fn eq ""} {
-    	# test using virtual (reflected) channel:
+	# test using virtual (reflected) channel:
 	proc driver {cmd args} {
 	    variable index
 	    set chan [lindex $args 0]
@@ -5193,9 +5193,9 @@ test io-36.1 {Tcl_InputBlocked on nonblocking pipe} {stdio openpipe} {
 } {{} 1 hello 0 {} 1}
 test io-36.1.1 {Tcl_InputBlocked on nonblocking binary pipe} {stdio openpipe} {
     set f1 [open "|[list [interpreter]]" r+]
-    chan configure $f1 -encoding binary -translation lf -eofchar {}
+    fconfigure $f1 -encoding binary -translation lf -eofchar {}
     puts $f1 {
-	chan configure stdout -encoding binary -translation lf -eofchar {}
+	fconfigure stdout -encoding binary -translation lf -eofchar {}
 	puts hello_from_pipe
     }
     flush $f1

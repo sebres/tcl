@@ -1487,12 +1487,12 @@ test socket-12.1 {testing inheritance of server sockets} {socket stdio exec} {
     file delete $path(script1)
     file delete $path(script2)
 
-    # Script1 is just a 10 second delay.  If the server socket
-    # is inherited, it will be held open for 10 seconds
+    # Script1 is just a 5 second delay.  If the server socket
+    # is inherited, it will be held open for 5 seconds
 
     set f [open $path(script1) w]
     puts $f {
-	after 10000 exit
+	after 5000 exit
 	vwait forever
     }
     close $f
@@ -1503,17 +1503,17 @@ test socket-12.1 {testing inheritance of server sockets} {socket stdio exec} {
 
     set f [open $path(script2) w]
     puts $f [list set tcltest [interpreter]]
-    puts -nonewline $f {
+    puts $f [list set script1 $path(script1)]
+    puts $f {
 	set f [socket -server accept -myaddr 127.0.0.1 0]
 	puts [lindex [fconfigure $f -sockname] 2]
 	proc accept { file addr port } {
 	    close $file
 	}
-	exec $tcltest }
-    puts $f [list $path(script1) &]
-    puts $f {
+	exec $tcltest $script1 &
+	puts started; # script1 is started (5 seconds alive), script2 can exit now:
 	close $f
-	after 1000 exit
+	after 500 {puts exit; exit}
 	vwait forever
     }
     close $f
@@ -1521,12 +1521,32 @@ test socket-12.1 {testing inheritance of server sockets} {socket stdio exec} {
     # Launch script2 and wait 5 seconds
 
     ### exec [interpreter] script2 &
-    set p [open "|[list [interpreter] $path(script2)]" r]
+    set p [open "|[list [interpreter] $path(script2)]"]
+    set pid2 [pid $p]
     gets $p listen
+    fconfigure $p -blocking 0
 
-    after 5000 { set ok_to_proceed 1 }
-    vwait ok_to_proceed
-
+    set ev [after 10000 { set ok_to_proceed "timeout" }]
+    set ok_to_proceed 0
+    while {!$ok_to_proceed && [gets $p] ne "exit"} {
+    	update
+    }
+    after cancel $ev
+    unset -nocomplain ok_to_proceed
+    # let script2 a bit time to exit properly
+    set waitcntr 0
+    while { [info command ::testisprocessrunning] eq ""
+	 || [testisprocessrunning $pid2]
+    } {
+	after 10
+	update
+	# avoid endless event-cycle if process "hangs":
+	if {[incr waitcntr] > 100} {
+	    break
+	}
+    }
+    after 100; # satisfy rude antivurus (retarding real exit) on some platforms :)
+    
     # If we can still connect to the server, the socket got inherited.
 
     if {[catch {socket 127.0.0.1 $listen} msg]} {
@@ -1716,6 +1736,7 @@ test socket-12.3 {testing inheritance of accepted sockets} {socket stdio exec} {
 
     after 1000 set ok_to_proceed 1
     vwait ok_to_proceed
+    unset -nocomplain ok_to_proceed
 
     set f [socket 127.0.0.1 $listen]
     fconfigure $f -buffering full -blocking 0
@@ -1792,8 +1813,16 @@ test socket-13.1 {Testing use of shared socket between two threads} \
     set port [testthread send $serverthread {set listen}]
     update
 
-    after 1000
-    set s [socket 127.0.0.1 $port]
+    # open socket within small busy wait-loop (should be fast between threads):
+    set waitcntr 0
+    while {[catch {
+	set s [socket 127.0.0.1 $port]
+    } err opt]} {
+	if {[incr waitcntr] > 100} {
+	    return -code {*}$opt $err
+	}
+	after 10
+    }
     fconfigure $s -buffering line
 
     catch {
@@ -1809,6 +1838,7 @@ test socket-13.1 {Testing use of shared socket between two threads} \
     removeFile script
 } -result {hello 1}
 
+removeFile script
 removeFile script1
 removeFile script2
 
