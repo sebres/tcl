@@ -754,6 +754,10 @@ test iocmd-21.19 {chan create, init failure -> no channel, no finalize} -match g
     set res
 } -result {{} {initialize rc* {read write}} 1 {*all required methods*} {}}
 test iocmd-21.20 {Bug 88aef05cda} -setup {
+    # this test also entering an endless loop, so decrease max nested range temporary:
+    set lastlimit [interp recursionlimit {}]
+    interp recursionlimit {} 50
+    # handler:
     proc foo {method chan args} {
 	switch -- $method blocking {
 	    chan configure $chan -blocking [lindex $args 0]
@@ -769,9 +773,11 @@ test iocmd-21.20 {Bug 88aef05cda} -setup {
 } -body {
     list [catch {chan configure $ch -blocking 0} m] $m
 } -cleanup {
+    interp recursionlimit {} $lastlimit
+    unset -nocomplain lastlimit
     close $ch
     rename foo {}
-} -match glob -result {1 {*nested eval*}}
+} -match glob -result {1 {*infinite loop*}}
 test iocmd-21.21 {[close] in [read] segfaults} -setup {
     proc foo {method chan args} {
 	switch -- $method initialize {
