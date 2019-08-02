@@ -16,7 +16,7 @@ matrix:
         - cd ${BUILD_DIR}
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc test TESTFLAGS="-file *io.test -verbose tpm"'
     - name: "Windows/MSVC/Static"
       os: windows
       compiler: cl
@@ -24,7 +24,7 @@ matrix:
       install: *vcinst
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc test TESTFLAGS="-file *io.test -verbose tpm"'
     - name: "Windows/MSVC/Debug"
       os: windows
       compiler: cl
@@ -32,7 +32,7 @@ matrix:
       install: *vcinst
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test TESTFLAGS="-file *io.test -verbose tpm"'
 
     - name: "Windows/GCC/Shared x86 (multilib, mingw-8.3)"
       os: windows
@@ -64,7 +64,7 @@ matrix:
 
         # (todo) windows tests should work in temporary folder (permissions related on some relative path, e. g. winFCmd, etc):
         # make test TESTFLAGS='-tmpdir 1'
-        - ./tcltest.sh
+        - ./tcltest.sh -file *io.test -verbose tpm
 
     - name: "Windows/GCC/Shared x64 (multilib, mingw-8.3)"
       os: windows
