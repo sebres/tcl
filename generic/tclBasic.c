@@ -3576,19 +3576,17 @@ TclInterpReady(
      * probably because of an infinite loop somewhere.
      */
 
-    if (((iPtr->numLevels) <= iPtr->maxNestingDepth)
-	    && CheckCStack(iPtr, &localInt)) {
-	return TCL_OK;
+    if ((iPtr->numLevels) > iPtr->maxNestingDepth) {
+	Tcl_AppendResult(interp,
+		"too many nested evaluations (infinite loop?)", NULL);
+	return TCL_ERROR;
     }
-
     if (!CheckCStack(iPtr, &localInt)) {
 	Tcl_AppendResult(interp,
 		"out of stack space (infinite loop?)", NULL);
-    } else {
-	Tcl_AppendResult(interp,
-		"too many nested evaluations (infinite loop?)", NULL);
+	return TCL_ERROR;
     }
-    return TCL_ERROR;
+    return TCL_OK;
 }
 
 /*
