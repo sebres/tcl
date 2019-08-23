@@ -240,14 +240,14 @@ TclWinThreadCreate(
      */
 #if defined(_MSC_VER) || defined(__MSVCRT__) || defined(__BORLANDC__)
     return (HANDLE) _beginthreadex(NULL, (unsigned) stackSize,
-	proc, clientData, 0, (unsigned *)idPtr);
+	(unsigned (__stdcall*)(void*))proc, clientData, 0, (unsigned *)idPtr);
 #else
     return CreateThread(NULL, (DWORD) stackSize,
 	proc, clientData, 0, (LPDWORD)idPtr);
 #endif
 }
 
-static void
+static inline void
 TclWinThreadExit(int status)
 {
 #if defined(_MSC_VER) || defined(__MSVCRT__) || defined(__BORLANDC__)
