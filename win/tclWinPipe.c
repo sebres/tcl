@@ -3351,7 +3351,6 @@ TclPipeThreadStop(
     if (!pipeTI) {
 	return;
     }
-    pipeTI = *pipeTIPtr;
     evControl = pipeTI->evControl;
     pipeTI->evWakeUp = NULL;
     /*
