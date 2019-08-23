@@ -2245,7 +2245,9 @@ test io-27.6 {FlushChannel, async flushing, async close} \
     puts $f "set f \[[list open $path(output) w]]"
     puts $f {
 	fconfigure $f -translation lf -buffering none -eofchar {}
-	while {![eof stdin]} {
+	set etm [clock milliseconds]
+	incr etm 5000; after 5000 {puts $f TIMEOUT; exit -1}
+	while {![eof stdin] && [clock milliseconds] < $etm} {
 	    after 5
 	    puts -nonewline $f [read stdin 4096]
 	}
@@ -2816,14 +2818,16 @@ test io-29.31 {Tcl_WriteChars, background flush} \
     file delete $path(output)
     set f [open $path(pipe) w]
     puts $f "set f \[[list open $path(output)  w]]"
-    puts $f {fconfigure $f -translation lf}
-    set x [list while {![eof stdin]}]
-    set x "$x {"
-    puts $f $x
-    puts $f {  puts -nonewline $f [read stdin 4096]}
-    puts $f {  flush $f}
-    puts $f "}"
-    puts $f {close $f}
+    puts $f {
+	fconfigure $f -translation lf
+	set etm [clock milliseconds]
+	incr etm 5000; after 5000 {puts $f TIMEOUT; exit -1}
+	while {![eof stdin] && [clock milliseconds] < $etm} {
+	  puts -nonewline $f [read stdin 4096]
+	  flush $f
+	}
+        close $f
+    }
     close $f
 } -body {
     set x 01234567890123456789012345678901
@@ -2867,15 +2871,17 @@ test io-29.32 {Tcl_WriteChars, background flush to slow reader} \
     file delete $path(output)
     set f [open $path(pipe) w]
     puts $f "set f \[[list open $path(output) w]]"
-    puts $f {fconfigure $f -translation lf}
-    set x [list while {![eof stdin]}]
-    set x "$x \{"
-    puts $f $x
-    puts $f {  after 5}
-    puts $f {  puts -nonewline $f [read stdin 4096]}
-    puts $f {  flush $f}
-    puts $f "\}"
-    puts $f {close $f}
+    puts $f {
+	fconfigure $f -translation lf
+	set etm [clock milliseconds]
+	incr etm 5000; after 5000 {puts $f TIMEOUT; exit -1}
+	while {![eof stdin] && [clock milliseconds] < $etm} {
+	  after 1
+	  puts -nonewline $f [read stdin 4096]
+	  flush $f
+	}
+        close $f
+    }
     close $f
 } -body {
     set x 01234567890123456789012345678901
@@ -2893,6 +2899,7 @@ test io-29.32 {Tcl_WriteChars, background flush to slow reader} \
     while {([file size $path(output)] < 65536) && ($counter < 1000)} {
 	after 1 [list incr [namespace which -variable counter]]
 	vwait [namespace which -variable counter]
+	#puts **********counter:$counter
     }
     if {$counter == 1000} {
 	set result "file size only [file size $path(output)]"
