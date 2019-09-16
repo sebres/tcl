@@ -800,7 +800,9 @@ FreeStringSegmentInternalRep(
      */
     if (objPtr->typePtr) {
 	/* rather a type switch (shimmering), string rep may be needed */
-	if (!offset && (!objPtr->bytes || objPtr->bytes == strSegPtr->bytes.ptr)) {
+	if (!offset && (!objPtr->bytes || objPtr->bytes == strSegPtr->bytes.ptr)
+	  && !strSegPtr->bytes.ptr[strSegPtr->length]
+	) {
 	    /* only possible on root segment, so check if segment is not shared
 	     * obtain last reference and simply free segment */
 	    if ( strSegPtr->refCount == 1
@@ -1775,10 +1777,10 @@ CompileSubstObj(
 
 	/* TODO: Check for more TIP 280 */
 	TclInitCompileEnv(interp, &compEnv, bytes, numBytes, NULL, 0);
-
-	TclSubstCompile(interp, bytes, numBytes, flags, 1, &compEnv);
 	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
 	compEnv.strSegPtr->refCount++;
+
+	TclSubstCompile(interp, bytes, numBytes, flags, 1, &compEnv);
 
 	TclEmitOpcode(INST_DONE, &compEnv);
 	TclInitByteCodeObj(objPtr, &compEnv);
