@@ -1189,13 +1189,6 @@ wrapObj:
 	    return codePtr->strSegPtr;
 	}
     }
-    if (typePtr == &tclListType) {
-	/* List */
-	List *listRepPtr = ListRepPtr(objPtr);
-	if (listRepPtr->strSegPtr) {
-	    return listRepPtr->strSegPtr;
-	}
-    }
 
 #if 1
     /* if requested only if exists */

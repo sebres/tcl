@@ -2363,7 +2363,7 @@ typedef struct List {
 				 * derived from the list representation. May
 				 * be ignored if there is no string rep at
 				 * all.*/
-    StringSegment *strSegPtr;	/* String segment of the list (avoid shimmering). */
+    ContLineLoc *clLocPtr;	/* Locations of invisible continuation lines. */
     Tcl_Obj *elements;		/* First list element; the struct is grown to
 				 * accommodate all elements. */
 } List;
@@ -2883,6 +2883,7 @@ MODULE_SCOPE int	TclChanCaughtErrorBypass(Tcl_Interp *interp,
 			    Tcl_Channel chan);
 MODULE_SCOPE Tcl_ObjCmdProc TclChannelNamesCmd;
 MODULE_SCOPE Tcl_NRPostProc TclClearRootEnsemble;
+MODULE_SCOPE ContLineLoc *TclContinuationsDupICL(ContLineLoc *clLocPtr);
 MODULE_SCOPE ContLineLoc *TclContinuationsEnter(Tcl_Obj *objPtr, int num,
 			    int *loc);
 MODULE_SCOPE void	TclContinuationsEnterDerived(Tcl_Obj *objPtr,

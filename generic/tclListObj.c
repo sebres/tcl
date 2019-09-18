@@ -115,7 +115,7 @@ NewListIntRep(
     listRepPtr->canonicalFlag = 0;
     listRepPtr->refCount = 0;
     listRepPtr->maxElemCount = objc;
-    listRepPtr->strSegPtr = NULL;
+    listRepPtr->clLocPtr = NULL;
 
     if (objv) {
 	Tcl_Obj **elemPtrs;
@@ -677,9 +677,9 @@ Tcl_ListObjAppendElement(
      */
 
     TclInvalidateStringRep(listPtr);
-    if (listRepPtr->strSegPtr) {
-	TclFreeStringSegment(listRepPtr->strSegPtr);
-	listRepPtr->strSegPtr = NULL;
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
     }
     return TCL_OK;
 }
@@ -1079,9 +1079,9 @@ Tcl_ListObjReplace(
      */
 
     TclInvalidateStringRep(listPtr);
-    if (listRepPtr->strSegPtr) {
-	TclFreeStringSegment(listRepPtr->strSegPtr);
-	listRepPtr->strSegPtr = NULL;
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
     }
     return TCL_OK;
 }
@@ -1536,11 +1536,9 @@ TclLsetFlat(
 	     */
 
 	    TclInvalidateStringRep(objPtr);
-
-	    /* invalidate string segment referenced in the list */
-	    if (listRepPtr->strSegPtr) {
-		TclFreeStringSegment(listRepPtr->strSegPtr);
-		listRepPtr->strSegPtr = NULL;
+	    if (listRepPtr->clLocPtr) {
+		ckfree(listRepPtr->clLocPtr);
+		listRepPtr->clLocPtr = NULL;
 	    }
 	}
 
@@ -1730,11 +1728,9 @@ TclListObjSetElement(
 
     /* Invalidate object string representation */
     TclInvalidateStringRep(listPtr);
-
-    /* invalidate string segment referenced in the list */
-    if (listRepPtr->strSegPtr) {
-	TclFreeStringSegment(listRepPtr->strSegPtr);
-	listRepPtr->strSegPtr = NULL;
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
     }
 
     return TCL_OK;
@@ -1770,8 +1766,8 @@ FreeListInternalRep(
 	for (i = 0;  i < numElems;  i++) {
 	    Tcl_DecrRefCount(elemPtrs[i]);
 	}
-	if (listRepPtr->strSegPtr) {
-	    TclFreeStringSegment(listRepPtr->strSegPtr);
+	if (listRepPtr->clLocPtr) {
+	    ckfree(listRepPtr->clLocPtr);
 	}
 	ckfree(listRepPtr);
     }
@@ -1879,7 +1875,7 @@ SetListFromAny(
 	}
     } else {
 	int estCount, length;
-	StringSegment *strSegPtr;
+	ContLineLoc *clLocPtr;
 	const char *limit, *nextElem = Tcl_GetUtfFromObj(objPtr, &length);
 
 	/*
@@ -1896,11 +1892,10 @@ SetListFromAny(
 	}
 	elemPtrs = &listRepPtr->elements;
 
-	/* try to obtain original string segment if we can retain sharing this */
-	strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_EXISTS);
-	if (strSegPtr) {
-	    strSegPtr->refCount++;
-	    listRepPtr->strSegPtr = strSegPtr;
+	/* try to obtain original ICL if object contains that */
+	clLocPtr = TclContinuationsGet(objPtr);
+	if (clLocPtr) {
+	    listRepPtr->clLocPtr = TclContinuationsDupICL(clLocPtr);
 	}
 
 	/*

@@ -526,37 +526,29 @@ TclFinalizeObjects(void)
  *----------------------------------------------------------------------
  */
 
-ContLineLoc *
-TclContinuationsEnter(
-    Tcl_Obj *objPtr,
+static inline ContLineLoc*
+FillICL(
+    ContLineLoc *clLocPtr,
     int num,
     int *loc)
 {
-    ContLineLoc *clLocPtr;
-    StringSegment *strSegPtr;
-
-    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
-    if (strSegPtr->clLocPtr != NULL) {
-	/*
-	 * We're entering ContLineLoc data for the same value more than one
-	 * time. Taking care not to leak the old entry.
-	 *
-	 * This can happen when literals in a proc body are shared. See for
-	 * example test info-30.19 where the action (code) for all branches of
-	 * the switch command is identical, mapping them all to the same
-	 * literal. An interesting result of this is that the number and
-	 * locations (offset) of invisible continuation lines in the literal
-	 * are the same for all occurences.
-	 *
-	 * We will try to reuse the old entry memory here (and simply replace
-	 * a content).
-	 */
-
-	clLocPtr = strSegPtr->clLocPtr;
-	if (clLocPtr->num != num) {
-	    clLocPtr = ckrealloc(clLocPtr,
+    /*
+     * We can enter ContLineLoc data for the same value more than one
+     * time. Taking care not to leak the old entry.
+     *
+     * This can happen when literals in a proc body are shared. See for
+     * example test info-30.19 where the action (code) for all branches of
+     * the switch command is identical, mapping them all to the same
+     * literal. An interesting result of this is that the number and
+     * locations (offset) of invisible continuation lines in the literal
+     * are the same for all occurences.
+     *
+     * We will try to reuse the old entry memory here (and simply replace
+     * a content).
+     */
+    if (clLocPtr && clLocPtr->num != num) {
+	clLocPtr = ckrealloc(clLocPtr,
 			   sizeof(ContLineLoc) + num*sizeof(int));
-	}
     } else {
 	clLocPtr = ckalloc(sizeof(ContLineLoc) + num*sizeof(int));
     }
@@ -564,9 +556,34 @@ TclContinuationsEnter(
     clLocPtr->num = num;
     memcpy(&clLocPtr->loc, loc, num*sizeof(int));
     clLocPtr->loc[num] = CLL_END;       /* Sentinel */
-    strSegPtr->clLocPtr = clLocPtr;
-
     return clLocPtr;
+}
+
+ContLineLoc *
+TclContinuationsDupICL(
+    ContLineLoc *clLocPtr)
+{
+    return FillICL(NULL, clLocPtr->num, clLocPtr->loc);
+}
+
+ContLineLoc *
+TclContinuationsEnter(
+    Tcl_Obj *objPtr,
+    int num,
+    int *loc)
+{
+    StringSegment *strSegPtr;
+
+    if (objPtr->typePtr == &tclListType) {
+	/* List */
+	List *listRepPtr = ListRepPtr(objPtr);
+	listRepPtr->clLocPtr = FillICL(listRepPtr->clLocPtr, num, loc);
+	return listRepPtr->clLocPtr;
+    }
+
+    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
+    strSegPtr->clLocPtr = FillICL(strSegPtr->clLocPtr, num, loc);
+    return strSegPtr->clLocPtr;
 }
 
 /*
@@ -686,22 +703,22 @@ TclContinuationsCopy(
     Tcl_Obj *objPtr,
     Tcl_Obj *originObjPtr)
 {
-    StringSegment *origSegPtr, *strSegPtr;
+    StringSegment *strSegPtr;
+    ContLineLoc *clLocPtr = TclContinuationsGet(originObjPtr);
 
-    /* only if segment can be obtained (also avoid shimmering problems) */
-    origSegPtr = TclGetStringSegmentFromObj(originObjPtr, TCLSEG_EXISTS);
-    if (!origSegPtr) {
-    	return;
-    }
-    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
-
-    /* if both objects don't share same segment */
-    if (origSegPtr != strSegPtr) {
-	ContLineLoc *clLocPtr = origSegPtr->clLocPtr;
-
-	if (clLocPtr) {
-	    TclContinuationsEnter(objPtr, clLocPtr->num, clLocPtr->loc);
+    if (objPtr->typePtr == &tclListType) {
+	/* List */
+	List *listRepPtr = ListRepPtr(objPtr);
+	if (listRepPtr->clLocPtr != clLocPtr) {
+	    listRepPtr->clLocPtr = FillICL(listRepPtr->clLocPtr,
+					clLocPtr->num, clLocPtr->loc);
 	}
+    }
+
+    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
+    if (strSegPtr->clLocPtr != clLocPtr) {
+	strSegPtr->clLocPtr = FillICL(strSegPtr->clLocPtr,
+				clLocPtr->num, clLocPtr->loc);
     }
 }
 
@@ -729,6 +746,12 @@ TclContinuationsGet(
     Tcl_Obj *objPtr)
 {
     StringSegment *strSegPtr;
+
+    if (objPtr->typePtr == &tclListType) {
+	/* List */
+	List *listRepPtr = ListRepPtr(objPtr);
+	return listRepPtr->clLocPtr;
+    }
 
     /* only if segment can be obtained (also avoid shimmering problems) */
     strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_EXISTS);
@@ -1653,9 +1676,6 @@ Tcl_ObjHasBytes(
      || (objPtr->typePtr == &tclCodeSegmentType)
      || (objPtr->typePtr && (
 	      (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
-#if 0 /* still unsafe to use it from string segment by lists */
-	   || (objPtr->typePtr == &tclListType && ListRepPtr(objPtr)->strSegPtr)
-#endif
 	  )
 	)
     );
@@ -1710,16 +1730,6 @@ Tcl_GetUtfFromObj(
 	    *lengthPtr = codePtr->numSrcBytes;
 	    return codePtr->source;
 	}
-#if 0 /* still unsafe to use it from string segment by lists */
-	if (objPtr->typePtr == &tclListType) {
-	    List *listPtr = ListRepPtr(objPtr);
-	    if (listPtr->strSegPtr) {
-		bytes = (const char *)TclGetStringSegmentBytes(listPtr->strSegPtr);
-		assert(!objPtr->bytes || memcmp(objPtr->bytes, bytes, 0) == 0);
-		return bytes;
-	    }
-	}
-#endif
     }
 
     /*
