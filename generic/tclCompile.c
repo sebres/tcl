@@ -754,6 +754,32 @@ void TclFreeStringSegment(StringSegment *strSegPtr) {
  */
 const Tcl_ObjType tclCodeSegmentType;
 
+static StringSegment *
+DupStringSegment(
+    StringSegment *parSegPtr,
+    size_t offset,
+    int length)
+{
+    StringSegment *strSegPtr;
+
+    /* hold it simple referenced (only one parent deeply) */
+    if (parSegPtr->parentPtr) {
+	offset += parSegPtr->bytes.offset; /* consider offset of parent */
+	parSegPtr = parSegPtr->parentPtr;  /* use root object */
+    }
+
+    strSegPtr = ckalloc(sizeof(StringSegment));
+    strSegPtr->refCount = 0;
+    strSegPtr->parentPtr = parSegPtr;
+    parSegPtr->refCount++;
+    strSegPtr->bytes.offset = offset;
+    strSegPtr->length = length;
+    strSegPtr->line = 0;
+    strSegPtr->clLocPtr = NULL;
+
+    return strSegPtr;
+}
+
 static void
 DupCodeSegmentInternalRep(
     Tcl_Obj *srcPtr,		/* Object with internal rep to copy. */
@@ -761,11 +787,22 @@ DupCodeSegmentInternalRep(
 {
     StringSegment *strSegPtr = srcPtr->internalRep.twoPtrValue.ptr1;
     copyPtr->typePtr = &tclCodeSegmentType;
+#if 1
+    /* be sure we have clean (full included) segment */
+    strSegPtr = DupStringSegment(strSegPtr,
+	(size_t)srcPtr->internalRep.twoPtrValue.ptr2 /* offset */,
+	srcPtr->length);
+    copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
+    copyPtr->internalRep.twoPtrValue.ptr2 = (void *)0; /* no offset */
+    copyPtr->length = srcPtr->length;
+    strSegPtr->refCount++;
+#else
     copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
     copyPtr->internalRep.twoPtrValue.ptr2 =
 		srcPtr->internalRep.twoPtrValue.ptr2;
     copyPtr->length = srcPtr->length;
     strSegPtr->refCount++;
+#endif
 }
 
 static inline void
@@ -957,24 +994,19 @@ TclNewCodeSegmentObj(
 	if (offset) {
 	    assert(offset < (size_t)strSegPtr->length);
 	}
-	/* object would share parent segment (directly or indirectly) */
-	strSegPtr->refCount++;
 	/* if fully included requested, check it (duplicate segment on demand) */
 	if ( (flags & TCLSEG_FULL_SEGREP)
 	  && (offset || length != strSegPtr->length)
 	) {
 	    /* not fully included - duplicate reference to parent */
-	    StringSegment *parSegPtr = strSegPtr;
+	    StringSegment *orgSegPtr = strSegPtr;
 
-	    strSegPtr = ckalloc(sizeof(StringSegment));
-	    strSegPtr->refCount = 1;
-	    strSegPtr->parentPtr = parSegPtr; /* refCount already incremented */
-	    strSegPtr->bytes.offset = offset;
-	    strSegPtr->length = length;
-	    strSegPtr->line = 0;
-	    strSegPtr->clLocPtr = NULL;
+	    strSegPtr = DupStringSegment(strSegPtr, offset, length);
+	    TclFreeStringSegment(orgSegPtr); /* we'll replace it in object (decr/free) */
 	    offset = 0;
 	}
+	/* object would share this segment */
+	strSegPtr->refCount++;
     } else {
 	if (flags & TCLSEG_DUP_STRREP) {
 	    char *newBytes;
@@ -1078,6 +1110,7 @@ TclCopyByteCodeObject(
     StringSegment *strSegPtr = TclGetStringSegmentFromObj(objPtr, 0);
 
     bytes = Tcl_GetUtfFromObj(objPtr, &length);
+    /* it should be safe to create code segment without TCLSEG_DUP_STRREP */
     cpyPtr = TclNewCodeSegmentObj(strSegPtr, bytes, length, 0);
 
     /*
@@ -1110,17 +1143,13 @@ TclGetStringSegmentFromObj(
 		    || objPtr->length != strSegPtr->length
 		)
 	    ) {
-		StringSegment *parSegPtr = strSegPtr;
+		/* not fully included - duplicate reference to parent */
+		StringSegment *orgSegPtr = strSegPtr;
+		size_t offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
 
-		parSegPtr->refCount++;
-		strSegPtr = ckalloc(sizeof(StringSegment));
-		strSegPtr->refCount = 1;
-		strSegPtr->parentPtr = parSegPtr;
-		strSegPtr->bytes.offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
-		strSegPtr->length = objPtr->length;
-		strSegPtr->line = 0;
-		strSegPtr->clLocPtr = NULL;
-
+		strSegPtr = DupStringSegment(strSegPtr, offset, objPtr->length);
+		strSegPtr->refCount++;
+		TclFreeStringSegment(orgSegPtr); /* we'll replace it in object (decr/free) */
 		objPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
 		objPtr->internalRep.twoPtrValue.ptr2 = (void *)0; /* no offset anymore */
 	    }
@@ -1412,14 +1441,18 @@ DupByteCodeInternalRep(
 
     if ((strSegPtr = codePtr->strSegPtr)) {
 	const char *bytes = TclGetStringSegmentBytes(strSegPtr);
-	size_t offset = codePtr->source - bytes;
-
+	size_t offset = bytes - codePtr->source; /* normally always 0 */
+	assert(bytes >= codePtr->source);
+#if 1
+	/* be sure we have clean (full included) segment */
+	strSegPtr = DupStringSegment(strSegPtr, offset, codePtr->numSrcBytes);
+	offset = 0;
+#endif
 	strSegPtr->refCount++;
 	copyPtr->typePtr = &tclCodeSegmentType;
 	copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
 	copyPtr->internalRep.twoPtrValue.ptr2 = (void *)offset;
 	copyPtr->length = codePtr->numSrcBytes;
-	return;
     }
 }
 
@@ -3440,23 +3473,14 @@ TclInitByteCodeObj(
 	offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
 	/* if offset is not 0 - create new part of segment */
 	if (offset) {
-	    StringSegment *strSegPtr = ckalloc(sizeof(StringSegment));
+	    StringSegment *strSegPtr = codePtr->strSegPtr;
 
-	    strSegPtr->refCount = 1;
-	    strSegPtr->parentPtr = codePtr->strSegPtr;
-	    /* hold it simple referenced (only one parent deeply) */
-	    if (strSegPtr->parentPtr->parentPtr) {
-		offset += strSegPtr->parentPtr->bytes.offset;
-		strSegPtr->parentPtr = strSegPtr->parentPtr->parentPtr;
-	    }
-	    strSegPtr->parentPtr->refCount++;
-	    strSegPtr->bytes.offset = offset;
-	    strSegPtr->length = objPtr->length;
-	    strSegPtr->line = 0;
-	    strSegPtr->clLocPtr = NULL;
-
+	    strSegPtr = DupStringSegment(strSegPtr, offset, objPtr->length);
+	    strSegPtr->refCount++;
+	    TclFreeStringSegment(codePtr->strSegPtr); /* we'll replace it in code (decr/free) */
 	    codePtr->strSegPtr = strSegPtr;
 	    objPtr->bytes = NULL;
+	    objPtr->internalRep.twoPtrValue.ptr2 = (void *)0; /* no offset */
 	}
     }
     objPtr->internalRep.twoPtrValue.ptr1 = codePtr;

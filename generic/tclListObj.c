@@ -12,6 +12,7 @@
  */
 
 #include "tclInt.h"
+#include <assert.h>
 
 /*
  * Prototypes for functions defined later in this file:
@@ -1524,7 +1525,10 @@ TclLsetFlat(
 	Tcl_Obj *objPtr = chainPtr;
 
 	if (result == TCL_OK) {
-	    List *listRepPtr = ListRepPtr(objPtr);
+	    List *listRepPtr;
+	    
+	    assert(objPtr->typePtr == &tclListType);
+	    listRepPtr = ListRepPtr(objPtr);
 
 	    /*
 	     * We're going to store valuePtr, so spoil string reps of all
@@ -1723,6 +1727,9 @@ TclListObjSetElement(
      */
 
     elemPtrs[index] = valuePtr;
+
+    /* Invalidate object string representation */
+    TclInvalidateStringRep(listPtr);
 
     /* invalidate string segment referenced in the list */
     if (listRepPtr->strSegPtr) {

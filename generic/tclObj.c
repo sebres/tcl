@@ -1501,24 +1501,26 @@ TclObjBeingDeleted(
  *----------------------------------------------------------------------
  */
 
-#define SetDuplicateObj(dupPtr, objPtr)					\
-    {									\
-	const Tcl_ObjType *typePtr = (objPtr)->typePtr;			\
-	const char *bytes = (objPtr)->bytes;				\
-	if (bytes) {							\
-	    TclInitStringRep((dupPtr), bytes, (objPtr)->length);	\
-	} else {							\
-	    (dupPtr)->bytes = NULL;					\
-	}								\
-	if (typePtr) {							\
-	    if (typePtr->dupIntRepProc) {				\
-		typePtr->dupIntRepProc((objPtr), (dupPtr));		\
-	    } else {							\
-		(dupPtr)->internalRep = (objPtr)->internalRep;		\
-		(dupPtr)->typePtr = typePtr;				\
-	    }								\
-	}								\
+static inline void
+SetDuplicateObj(Tcl_Obj *dupPtr, Tcl_Obj *objPtr)
+{
+    const Tcl_ObjType *typePtr = (objPtr)->typePtr;
+    const char *bytes = (objPtr)->bytes;
+    if (bytes && typePtr != &tclCodeSegmentType) {
+	TclInitStringRep((dupPtr), bytes, (objPtr)->length);
+    } else {
+	(dupPtr)->bytes = NULL;
+	(dupPtr)->length = (objPtr)->length;
     }
+    if (typePtr) {
+	if (typePtr->dupIntRepProc) {
+	    typePtr->dupIntRepProc((objPtr), (dupPtr));
+	} else {
+	    (dupPtr)->internalRep = (objPtr)->internalRep;
+	    (dupPtr)->typePtr = typePtr;
+	}
+    }
+}
 
 Tcl_Obj *
 Tcl_DuplicateObj(
@@ -1649,7 +1651,13 @@ Tcl_ObjHasBytes(
     return (
 	objPtr->bytes
      || (objPtr->typePtr == &tclCodeSegmentType)
-     || (objPtr->typePtr && objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
+     || (objPtr->typePtr && (
+	      (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
+#if 0 /* still unsafe to use it from string segment by lists */
+	   || (objPtr->typePtr == &tclListType && ListRepPtr(objPtr)->strSegPtr)
+#endif
+	  )
+	)
     );
 }
 
@@ -1695,13 +1703,23 @@ Tcl_GetUtfFromObj(
 	return bytes;
     }
 
-    if (objPtr->typePtr
-     && (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode)
-    ) {
-	/* ByteCode */
-	ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
-	*lengthPtr = codePtr->numSrcBytes;
-	return codePtr->source;
+    if (objPtr->typePtr) {
+	if (objPtr->typePtr->updateStringProc == TclUpdateStringOfByteCode) {
+	    /* ByteCode */
+	    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
+	    *lengthPtr = codePtr->numSrcBytes;
+	    return codePtr->source;
+	}
+#if 0 /* still unsafe to use it from string segment by lists */
+	if (objPtr->typePtr == &tclListType) {
+	    List *listPtr = ListRepPtr(objPtr);
+	    if (listPtr->strSegPtr) {
+		bytes = (const char *)TclGetStringSegmentBytes(listPtr->strSegPtr);
+		assert(!objPtr->bytes || memcmp(objPtr->bytes, bytes, 0) == 0);
+		return bytes;
+	    }
+	}
+#endif
     }
 
     /*
