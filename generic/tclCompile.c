@@ -1160,14 +1160,23 @@ wrapObj:
 	    return codePtr->strSegPtr;
 	}
     }
+    if (typePtr == &tclListType) {
+	/* List */
+	List *listRepPtr = ListRepPtr(objPtr);
+	if (listRepPtr->strSegPtr) {
+	    return listRepPtr->strSegPtr;
+	}
+    }
 
 #if 1
-    if (!(flags & TCLSEG_EXISTS)) {
-	TclGetString(objPtr);
-	TclFreeIntRep(objPtr);
-	goto wrapObj;
-     }
-     return NULL;
+    /* if requested only if exists */
+    if (flags & TCLSEG_EXISTS) {
+	return NULL; /* no segment */
+    }
+    /* wrap to object containing segment */
+    TclGetString(objPtr);
+    TclFreeIntRep(objPtr);
+    goto wrapObj;
 #else
     /* *****todo**** rewrite this - wrap obj to a string segment or return new (rather impossible because of bytes sharing & offsets) */
     Tcl_Panic("unexpected, TclGetStringSegmentFromObj not yet implemented for %s: %.80s!!!", objPtr->typePtr ? objPtr->typePtr->name : "NONE", TclGetString(objPtr));

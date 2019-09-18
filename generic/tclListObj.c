@@ -676,6 +676,10 @@ Tcl_ListObjAppendElement(
      */
 
     TclInvalidateStringRep(listPtr);
+    if (listRepPtr->strSegPtr) {
+	TclFreeStringSegment(listRepPtr->strSegPtr);
+	listRepPtr->strSegPtr = NULL;
+    }
     return TCL_OK;
 }
 
@@ -1074,6 +1078,10 @@ Tcl_ListObjReplace(
      */
 
     TclInvalidateStringRep(listPtr);
+    if (listRepPtr->strSegPtr) {
+	TclFreeStringSegment(listRepPtr->strSegPtr);
+	listRepPtr->strSegPtr = NULL;
+    }
     return TCL_OK;
 }
 
@@ -1516,12 +1524,20 @@ TclLsetFlat(
 	Tcl_Obj *objPtr = chainPtr;
 
 	if (result == TCL_OK) {
+	    List *listRepPtr = ListRepPtr(objPtr);
+
 	    /*
 	     * We're going to store valuePtr, so spoil string reps of all
 	     * containing lists.
 	     */
 
 	    TclInvalidateStringRep(objPtr);
+
+	    /* invalidate string segment referenced in the list */
+	    if (listRepPtr->strSegPtr) {
+		TclFreeStringSegment(listRepPtr->strSegPtr);
+		listRepPtr->strSegPtr = NULL;
+	    }
 	}
 
 	/*
@@ -1557,7 +1573,7 @@ TclLsetFlat(
     } else {
 	TclListObjSetElement(NULL, subListPtr, index, valuePtr);
     }
-    TclInvalidateStringRep(subListPtr);
+
     Tcl_IncrRefCount(retValuePtr);
     return retValuePtr;
 }
@@ -1707,6 +1723,12 @@ TclListObjSetElement(
      */
 
     elemPtrs[index] = valuePtr;
+
+    /* invalidate string segment referenced in the list */
+    if (listRepPtr->strSegPtr) {
+	TclFreeStringSegment(listRepPtr->strSegPtr);
+	listRepPtr->strSegPtr = NULL;
+    }
 
     return TCL_OK;
 }
