@@ -55,6 +55,16 @@
 typedef int ptrdiff_t;
 #endif
 
+/* 
+ * [MSVC] fallback to replace C++ keyword "inline" with C keyword "__inline" 
+ * Otherwise depending on the VC-version, context, include-order it can cause:
+ *  error C2054: expected '(' to follow 'inline'
+ */
+#if defined(_MSC_VER) && !defined(inline)
+#	define inline	__inline
+#endif
+
+
 /*
  * Ensure WORDS_BIGENDIAN is defined correctly:
  * Needs to happen here in addition to configure to work with fat compiles on
@@ -126,6 +136,58 @@ typedef int ptrdiff_t;
 #	define PTR2UINT(p) ((unsigned int)(p))
 #   endif
 #endif
+
+/*
+ *----------------------------------------------------------------
+ * Data structures related to timer / idle events.
+ *----------------------------------------------------------------
+ */
+
+#define TCL_TMREV_PROMPT  (1 << 0)	/* Mark immediate event (0 microseconds) */
+#define TCL_TMREV_AT	  (1 << 1)	/* Mark timer event to execute verbatim
+					 * at the due-time (regardless any 
+					 * time-jumps). */
+#define TCL_TMREV_IDLE    (1 << 3)	/* Mark idle event */
+#define TCL_TMREV_LISTED  (1 << 5)	/* Event listed (attached to queue). */
+#define TCL_TMREV_DELETE  (1 << 7)	/* Event will be deleted. */
+
+/*
+ * This structure used for handling of timer events (with or without time to 
+ * invoke, e. g. created with "after 0") or declared in a call to Tcl_DoWhenIdle
+ * (created with "after idle"). All of the currently-active handlers are linked
+ * together into corresponding list.
+ *
+ * For each timer callback that's pending there is one record of the following
+ * type. The normal handlers (created by Tcl_CreateTimerHandler) are chained
+ * together in a list via TclTimerEvent sorted by time (earliest event first).
+ */
+
+typedef struct TclTimerEvent {
+    Tcl_TimerProc	*proc;	/* Function to call timer/idle event */
+    Tcl_TimerDeleteProc *deleteProc; /* Function to cleanup idle event */
+    ClientData clientData;	/* Argument to pass to proc and deleteProc */
+    int			flags;	/* Flags, OR-ed combination of flags/states
+				 * TCL_TMREV_PROMPT ... TCL_TMREV_DELETE */
+
+    Tcl_WideInt		time;	/* When timer is to fire (absolute/relative). */
+    Tcl_TimerToken	token;	/* Identifies handler so it can be deleted. */
+
+    size_t generation;		/* Used to distinguish older handlers from
+				 * recently-created ones. */
+    size_t refCount;		/* Used to preserve for deletion (nested exec
+				 * resp. prolongation). */
+    struct TclTimerEvent *nextPtr;/* Next and prev event in idle queue, */
+    struct TclTimerEvent *prevPtr;/* or NULL for end/start of the queue. */
+    /* variable ExtraData */	/* If extraDataSize supplied to create event. */
+} TclTimerEvent;
+
+/*
+ * Macros to wrap ExtraData and TclTimerEvent (and vice versa)
+ */
+#define TclpTimerEvent2ExtraData(ptr)					\
+	    ( (ClientData)(((TclTimerEvent *)(ptr))+1) )
+#define TclpExtraData2TimerEvent(ptr)					\
+	    ( ((TclTimerEvent *)(ptr))-1 )
 
 /*
  * The following procedures allow namespaces to be customized to support
@@ -1797,8 +1859,7 @@ typedef struct Interp {
 				 * reached. */
 	int timeGranularity;	/* Mod factor used to determine how often to
 				 * evaluate the limit check. */
-	Tcl_TimerToken timeEvent;
-				/* Handle for a timer callback that will occur
+	TclTimerEvent *timeEvent;/* Handle for a timer callback that will occur
 				 * when the time-limit is exceeded. */
 
 	Tcl_HashTable callbacks;/* Mapping from (interp,type) pair to data
@@ -1946,17 +2007,36 @@ typedef struct Interp {
  * existence of struct items 'prevPtr' and 'nextPtr'.
  *
  * a = element to add or remove.
- * b = list head.
+ * b = list head (points to the first element).
+ * e = list tail (points to the last element).
  *
  * TclSpliceIn adds to the head of the list.
+ * TclSpliceTail adds to the tail of the list.
  */
 
 #define TclSpliceIn(a,b)			\
-    (a)->nextPtr = (b);				\
-    if ((b) != NULL) {				\
+    if (((a)->nextPtr = (b)) != NULL) {		\
 	(b)->prevPtr = (a);			\
     }						\
     (a)->prevPtr = NULL, (b) = (a);
+
+#define TclSpliceInEx(a,b,e)			\
+    TclSpliceIn(a,b);				\
+    if ((e) == NULL) {				\
+	(e) = (a);				\
+    }
+
+#define TclSpliceTail(a,e)			\
+    if (((a)->prevPtr = (e)) != NULL) {		\
+	(e)->nextPtr = (a);			\
+    }						\
+    (a)->nextPtr = NULL, (e) = (a);
+
+#define TclSpliceTailEx(a,b,e)			\
+    TclSpliceTail(a,e);				\
+    if ((b) == NULL) {				\
+	(b) = (a);				\
+    }
 
 #define TclSpliceOut(a,b)			\
     if ((a)->prevPtr != NULL) {			\
@@ -1966,6 +2046,11 @@ typedef struct Interp {
     }						\
     if ((a)->nextPtr != NULL) {			\
 	(a)->nextPtr->prevPtr = (a)->prevPtr;	\
+    }
+
+#define TclSpliceOutEx(a,b,e)			\
+    TclSpliceOut(a,b) else {			\
+	(e) = (e)->prevPtr;			\
     }
 
 /*
@@ -2407,6 +2492,7 @@ MODULE_SCOPE Tcl_ObjType tclByteCodeType;
 MODULE_SCOPE Tcl_ObjType tclDoubleType;
 MODULE_SCOPE Tcl_ObjType tclEndOffsetType;
 MODULE_SCOPE Tcl_ObjType tclIntType;
+MODULE_SCOPE Tcl_ObjType tclIndexType;
 MODULE_SCOPE Tcl_ObjType tclListType;
 MODULE_SCOPE Tcl_ObjType tclDictType;
 MODULE_SCOPE Tcl_ObjType tclProcBodyType;
@@ -2476,11 +2562,18 @@ MODULE_SCOPE char	tclEmptyString;
 #define TCL_DD_SHORTEST0		0x0
 				/* 'Shortest possible' after masking */
 
+
 /*
  *----------------------------------------------------------------
  * Procedures shared among Tcl modules but not used by the outside world:
  *----------------------------------------------------------------
  */
+
+MODULE_SCOPE int	TclObjIsIndexOfStruct(Tcl_Obj *objPtr,
+			    const void *tablePtr);
+#define TclObjIsIndexOfTable(objPtr, tablePtr) \
+	((objPtr->typePtr == &tclIndexType) \
+		&& TclObjIsIndexOfStruct(objPtr, tablePtr))
 
 MODULE_SCOPE void	TclAppendBytesToByteArray(Tcl_Obj *objPtr,
 			    const unsigned char *bytes, int len);
@@ -2792,9 +2885,70 @@ MODULE_SCOPE Tcl_WideInt TclpGetWideClicks(void);
 MODULE_SCOPE double	TclpWideClickInMicrosec(void);
 #	define		TclpWideClicksToNanoseconds(clicks) \
 				((double)(clicks) * TclpWideClickInMicrosec() * 1000)
+	/* Tolerance (in percent), prevents entering busy wait, but has fewer accuracy
+	 * because can wait a bit shorter as wanted. Currently experimental value
+	 * (4.5% equivalent to 15600 / 15000 with small overhead) */
+#     ifndef TMR_RES_TOLERANCE
+#	define TMR_RES_TOLERANCE 4.5
+#     endif
 #   endif
 #endif
 MODULE_SCOPE Tcl_WideInt TclpGetMicroseconds(void);
+MODULE_SCOPE Tcl_WideInt TclpGetUTimeMonotonic(void);
+
+MODULE_SCOPE int	TclpGetUTimeFromObj(Tcl_Interp *interp, Tcl_Obj *objPtr, 
+			    Tcl_WideInt *timePtr, int factor);
+MODULE_SCOPE void	TclpScaleUTime(Tcl_WideInt *usec);
+
+MODULE_SCOPE void	TclpUSleep(Tcl_WideInt usec);
+/*
+ * Helper macros for working with times. TCL_TIME_BEFORE encodes how to write
+ * the ordering relation on (normalized) times, and TCL_TIME_DIFF_MS resp. 
+ * TCL_TIME_DIFF_US compute the number of milliseconds or microseconds difference
+ * between two times. Both macros use both of their arguments multiple times,
+ * so make sure they are cheap and side-effect free. 
+ * Macro TCL_TIME_TO_USEC converts Tcl_Time to microseconds.
+ * The "prototypes" for these macros are:
+ *
+ * static int		TCL_TIME_BEFORE(Tcl_Time t1, Tcl_Time t2);
+ * static Tcl_WideInt	TCL_TIME_DIFF_MS(Tcl_Time t1, Tcl_Time t2);
+ * static Tcl_WideInt	TCL_TIME_DIFF_US(Tcl_Time t1, Tcl_Time t2);
+ * static Tcl_WideInt   TCL_TIME_TO_USEC(Tcl_Time t)
+ */
+
+#define TCL_TIME_BEFORE(t1, t2) \
+    (((t1).sec<(t2).sec) || ((t1).sec==(t2).sec && (t1).usec<(t2).usec))
+
+#define TCL_TIME_DIFF_MS(t1, t2) \
+    (1000*((Tcl_WideInt)(t1).sec - (Tcl_WideInt)(t2).sec) + \
+	    ((long)(t1).usec - (long)(t2).usec)/1000)
+#define TCL_TIME_DIFF_US(t1, t2) \
+    (1000000*((Tcl_WideInt)(t1).sec - (Tcl_WideInt)(t2).sec) + \
+	    ((long)(t1).usec - (long)(t2).usec))
+#define TCL_TIME_TO_USEC(t) \
+    (((Tcl_WideInt)(t).sec)*1000000 + (t).usec)
+
+static inline void
+TclTimeSetMilliseconds(
+    register Tcl_Time *timePtr,
+    register double ms
+) {
+    timePtr->sec = (long)(ms / 1000);
+    timePtr->usec = (((long)ms) % 1000) * 1000 + (((long)(ms*1000)) % 1000);
+}
+
+static inline void
+TclTimeAddMilliseconds(
+    register Tcl_Time *timePtr,
+    register double ms
+) {
+    timePtr->sec += (long)(ms / 1000);
+    timePtr->usec += (((long)ms) % 1000) * 1000 + (((long)(ms*1000)) % 1000);
+    if (timePtr->usec > 1000000) {
+	timePtr->usec -= 1000000;
+	timePtr->sec++;
+    }
+}
 
 MODULE_SCOPE Tcl_Obj *	TclDisassembleByteCodeObj(Tcl_Obj *objPtr);
 MODULE_SCOPE int TclUtfCasecmp(CONST char *cs, CONST char *ct);
@@ -2852,9 +3006,53 @@ MODULE_SCOPE int	Tcl_ConcatObjCmd(ClientData clientData,
 MODULE_SCOPE int	Tcl_ContinueObjCmd(ClientData clientData,
 			    Tcl_Interp *interp, int objc,
 			    Tcl_Obj *const objv[]);
+MODULE_SCOPE void	TclSetTimerEventMarker(int flags);
+MODULE_SCOPE int	TclServiceTimerEvents(void);
+MODULE_SCOPE int	TclServiceIdleEx(int flags, int count);
+MODULE_SCOPE void	TclpCancelEvent(Tcl_Event *evPtr);
+static inline Tcl_Event*
+TclpQueueEventEx(
+    Tcl_EventProc *proc,	/* Event function to call if it servicing. */
+    ClientData extraData,	/* Event extra data to be included and its */
+    size_t extraDataSize,	/* extra size (to allocate and copy into). */
+    Tcl_QueuePosition position)	/* One of TCL_QUEUE_TAIL, TCL_QUEUE_HEAD,
+				 * TCL_QUEUE_MARK or TCL_QUEUE_RETARDED. */
+{
+    Tcl_Event *evPtr = (Tcl_Event*)ckalloc(sizeof(Tcl_Event) + extraDataSize);
+    evPtr->proc = proc;
+    memcpy((evPtr+1), extraData, extraDataSize);
+    Tcl_QueueEvent(evPtr, position);
+    return evPtr;
+}
+static inline Tcl_Event*
+TclpQueueEventClientData(
+    Tcl_EventProc *proc,	/* Event function to call if it servicing. */
+    ClientData clientData,	/* Event extra data to be included. */
+    Tcl_QueuePosition position)	/* One of TCL_QUEUE_TAIL, TCL_QUEUE_HEAD,
+				 * TCL_QUEUE_MARK or TCL_QUEUE_RETARDED. */
+{
+    Tcl_Event *evPtr = (Tcl_Event*)ckalloc(sizeof(Tcl_Event) + sizeof(clientData));
+    evPtr->proc = proc;
+    *(ClientData*)(evPtr+1) = clientData;
+    Tcl_QueueEvent(evPtr, position);
+    return evPtr;
+}
+MODULE_SCOPE TclTimerEvent* TclpCreateTimerEvent(Tcl_WideInt usec,
+			    Tcl_TimerProc *proc, Tcl_TimerDeleteProc *delProc,
+			    size_t extraDataSize, int flags);
+MODULE_SCOPE TclTimerEvent* TclpCreatePromptTimerEvent(
+			    Tcl_TimerProc *proc, Tcl_TimerDeleteProc *delProc,
+			    size_t extraDataSize, int flags);
+MODULE_SCOPE Tcl_TimerToken TclCreateTimerHandler(
+			    Tcl_Time *timePtr, Tcl_TimerProc *proc,
+			    ClientData clientData, int flags);
 MODULE_SCOPE Tcl_TimerToken TclCreateAbsoluteTimerHandler(
 			    Tcl_Time *timePtr, Tcl_TimerProc *proc,
 			    ClientData clientData);
+MODULE_SCOPE void	TclpDeleteTimerEvent(TclTimerEvent *tmrEvent);
+MODULE_SCOPE TclTimerEvent* TclpProlongTimerEvent(TclTimerEvent *tmrEvent,
+			    Tcl_WideInt usec, int flags);
+MODULE_SCOPE int	TclPeekEventQueued(int flags);
 MODULE_SCOPE int	TclDefaultBgErrorHandlerObjCmd(
 			    ClientData clientData, Tcl_Interp *interp,
 			    int objc, Tcl_Obj *const objv[]);
@@ -3952,6 +4150,17 @@ MODULE_SCOPE void	TclBNInitBignumFromWideUInt(mp_int *bignum,
  */
 
 #define TclLimitExceeded(limit) ((limit).exceeded != 0)
+
+static inline int
+TclInlLimitExceeded(
+    register Tcl_Interp *interp)
+{
+    return (((Interp *)interp)->limit.exceeded != 0);
+}
+#ifdef Tcl_LimitExceeded
+#  undef Tcl_LimitExceeded
+#endif
+#define Tcl_LimitExceeded(interp) TclInlLimitExceeded(interp)
 
 #define TclLimitReady(limit)						\
     (((limit).active == 0) ? 0 :					\

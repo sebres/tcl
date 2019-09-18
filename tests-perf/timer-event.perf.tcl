@@ -131,7 +131,29 @@ proc test-exec {{reptime 1000}} {
   }
 }
 
-proc test-nrt-capability {{reptime 1000}} {
+proc test-exec-new {{reptime 1000}} {
+  _test_run $reptime {
+    # conditional update pure idle only (without window):
+    {update -idle}
+    # conditional update without idle events:
+    {update -noidle}
+    # conditional update timers only:
+    {update -timer}
+    # conditional update AIO only:
+    {update -async}
+
+    # conditional vwait with zero timeout: pure idle only (without window):
+    {vwait -idle 0 x}
+    # conditional vwait with zero timeout: without idle events:
+    {vwait -noidle 0 x}
+    # conditional vwait with zero timeout: timers only:
+    {vwait -timer 0 x}
+    # conditional vwait with zero timeout: AIO only:
+    {vwait -async 0 x}
+  }
+}
+
+proc test-nrt-capability-old {{reptime 1000}} {
   _test_run $reptime {
     # comparison values:
     {after 0 {set a 5}; update}
@@ -140,6 +162,43 @@ proc test-nrt-capability {{reptime 1000}} {
     # conditional vwait with very brief wait-time:
     {after 1 {set a timeout}; vwait a; expr {$::a ne "timeout" ? 1 : "0[unset ::a]"}}
     {after 0 {set a timeout}; vwait a; expr {$::a ne "timeout" ? 1 : "0[unset ::a]"}}
+  }
+}
+
+proc test-nrt-capability {{reptime 1000}} {
+  _test_run $reptime {
+    # comparison values:
+    {after 0 {set a 5}; update}
+    {after 0 {set a 5}; vwait a}
+
+    # conditional vwait with very brief wait-time:
+    {vwait 1 a}
+    {vwait 0.5 a}
+    {vwait 0.2 a}
+    {vwait 0.1 a}
+    {vwait 0.05 a}
+    {vwait 0.02 a}
+    {vwait 0.01 a}
+    {vwait 0.005 a}
+    {vwait 0.001 a}
+
+    # NRT sleep / very brief delays (0.5 - 0.005):
+    {after 0.5}
+    {after 0.05}
+    {after 0.005}
+    # NRT sleep / very brief delays (0.1 - 0.001):
+    {after 0.1}
+    {after 0.01}
+    {after 0.001}
+
+    # comparison of update's executing event:
+    {after idle {set a 5}; update -idle -timer}
+    {after 0 {set a 5}; update -idle -timer}
+    {after idle {set a 5}; update -idle}
+    # comparison of vwait's executing event:
+    {after idle {set a 5}; vwait -idle -timer a}
+    {after 0 {set a 5}; vwait -idle -timer a}
+    {after idle {set a 5}; vwait -idle a}
   }
 }
 
@@ -159,7 +218,12 @@ proc test {{reptime 1000}} {
   foreach howmuch {5000 50000} {
     test-access [list $reptime $howmuch]
   }
-  test-nrt-capability $reptime
+  if {![catch {update -noidle}]} {
+    test-exec-new $reptime
+    test-nrt-capability $reptime
+  } else {
+    test-nrt-capability-old $reptime
+  }
   test-long $reptime
 
   puts ""

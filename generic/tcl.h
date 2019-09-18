@@ -710,6 +710,7 @@ typedef void (Tcl_PanicProc) _ANSI_ARGS_((CONST char *format, ...));
 typedef void (Tcl_TcpAcceptProc) _ANSI_ARGS_((ClientData callbackData,
 	Tcl_Channel chan, char *address, int port));
 typedef void (Tcl_TimerProc) _ANSI_ARGS_((ClientData clientData));
+typedef void (Tcl_TimerDeleteProc) _ANSI_ARGS_((ClientData clientData));
 typedef int (Tcl_SetFromAnyProc) _ANSI_ARGS_((Tcl_Interp *interp,
 	struct Tcl_Obj *objPtr));
 typedef void (Tcl_UpdateStringProc) _ANSI_ARGS_((struct Tcl_Obj *objPtr));
@@ -1296,6 +1297,7 @@ typedef struct {
  * events:
  */
 
+#define TCL_ASYNC_EVENTS	(1<<0)
 #define TCL_DONT_WAIT		(1<<1)
 #define TCL_WINDOW_EVENTS	(1<<2)
 #define TCL_FILE_EVENTS		(1<<3)
@@ -1322,7 +1324,7 @@ struct Tcl_Event {
  */
 
 typedef enum {
-    TCL_QUEUE_TAIL, TCL_QUEUE_HEAD, TCL_QUEUE_MARK
+    TCL_QUEUE_TAIL, TCL_QUEUE_HEAD, TCL_QUEUE_MARK, TCL_QUEUE_RETARDED
 } Tcl_QueuePosition;
 
 /*

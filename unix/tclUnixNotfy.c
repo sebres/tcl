@@ -110,9 +110,10 @@ typedef struct ThreadSpecificData {
     pthread_cond_t waitCV;	/* Any other thread alerts a notifier that an
 				 * event is ready to be processed by signaling
 				 * this condition variable. */
+    int waitCVMono;		/* Mark wait monotonic based */
 #endif /* __CYGWIN__ */
     int waitCVinitialized;	/* Variable to flag initialization of the structure */
-    int eventReady;		/* True if an event is ready to be processed.
+    int eventReady;		/* > 0 if an event is ready to be processed.
 				 * Used as condition flag together with waitCV
 				 * above. */
 #endif /* TCL_THREADS */
@@ -332,6 +333,7 @@ ClientData
 Tcl_InitNotifier(void)
 {
     ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
+    pthread_condattr_t wcvAttr, *wcvAttrPtr = NULL;
 
 #ifdef TCL_THREADS
     tsdPtr->eventReady = 0;
@@ -361,7 +363,14 @@ Tcl_InitNotifier(void)
 	tsdPtr->event = CreateEventW(NULL, 1 /* manual */,
 		0 /* !signaled */, NULL);
 #else
-	pthread_cond_init(&tsdPtr->waitCV, NULL);
+	pthread_condattr_init(&wcvAttr);
+        if (pthread_condattr_setclock(&wcvAttr, CLOCK_MONOTONIC) == 0) {
+	    /* we can use conditional wait monotonic based */
+	    wcvAttrPtr = &wcvAttr;
+	    tsdPtr->waitCVMono = 1;
+        }
+	pthread_cond_init(&tsdPtr->waitCV, wcvAttrPtr);
+        (void)pthread_condattr_destroy(&wcvAttr);
 #endif /* __CYGWIN__ */
 	tsdPtr->waitCVinitialized = 1;
     }
@@ -492,7 +501,7 @@ Tcl_AlertNotifier(
     ThreadSpecificData *tsdPtr = (ThreadSpecificData *) clientData;
 
     pthread_mutex_lock(&notifierMutex);
-    tsdPtr->eventReady = 1;
+    tsdPtr->eventReady++;
 #ifdef __CYGWIN__
     PostMessageW(tsdPtr->hwnd, 1024, 0, 0);
 #else /* __CYGWIN__ */
@@ -822,11 +831,124 @@ NotifierProc(
      * Process all of the runnable events.
      */
 
-    tsdPtr->eventReady = 1;
+    tsdPtr->eventReady++;
     Tcl_ServiceAll();
     return 0;
 }
 #endif /* TCL_THREADS && __CYGWIN__ */
+
+
+/* 
+ * Several minimal sleep and wait values, corresponding unix timer resolution
+ *
+ * Note: Adjusting of this values may increase NRT-capability, but also may
+ * 	 increase CPU load (resp. busy waits on brief intervals).
+ */
+
+#ifndef TCL_TMR_MIN_DELAY
+#   define TCL_TMR_MIN_DELAY 100
+#   define TCL_TMR_MIN_USLEEP 50
+#   define TCL_TMR_MIN_NSLEEP 1
+#   define TCL_TMR_OVERHEAD 50
+#endif
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclpUSleep --
+ *
+ *	Delay execution for the specified time (in microseconds).
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Time passes.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static unsigned int tclMinDelay  = TCL_TMR_MIN_DELAY;
+static unsigned int tclMinUSleep = TCL_TMR_MIN_USLEEP;
+static unsigned int tclMinNSleep = TCL_TMR_MIN_NSLEEP;
+
+void
+TclpUSleep(
+    Tcl_WideInt usec)	/* Time to sleep. */
+{
+    Tcl_WideInt now, desired;
+    unsigned int *calibValue;
+
+    if (usec < 0) {
+	usec = 0;
+    }
+
+    /*
+     * TIP #233: Scale from virtual time to real-time for select/usleep.
+     */
+    TclpScaleUTime(&usec);
+
+    /*
+     * The only trick here is that select appears to return early under some
+     * conditions, so we have to check to make sure that the right amount of
+     * time really has elapsed.  If it's too early, go back to sleep again.
+     *
+     * Note the time can be switched (time-jump), so use monotonic time here.
+     */
+
+    now = TclpGetUTimeMonotonic();
+    if ((desired = (now + usec)) < now) { /* overflow */
+	desired = 0x7FFFFFFFFFFFFFFFL;
+    }
+
+    while (1) {
+	
+	if (usec >= tclMinDelay) {
+
+	    struct timeval delay;
+
+	    calibValue = &tclMinDelay;
+	    usec -= (usec % tclMinDelay);
+	    delay.tv_sec  = usec / 1000000;
+	    delay.tv_usec = usec % 1000000;
+
+	    (void) select(0, (SELECT_MASK *) 0, (SELECT_MASK *) 0,
+		(SELECT_MASK *) 0, &delay);
+
+	} else if (usec >= tclMinUSleep) {
+	    calibValue = &tclMinUSleep;
+	    usec -= (usec % tclMinUSleep);
+	    usleep((useconds_t)usec);
+	} else if (usec >= tclMinNSleep) {
+	    struct timespec delay;
+
+	    calibValue = &tclMinNSleep;
+	    usec -= (usec % tclMinNSleep);
+	    delay.tv_sec  = usec / 1000000;
+	    delay.tv_nsec = (usec % 1000000) * 1000; /* usec to nsec */
+
+	    nanosleep(&delay, NULL);
+	} else {
+	    calibValue = NULL;
+#ifdef _POSIX_PRIORITY_SCHEDULING
+	    sched_yield(); /* yield the processor (force context switch). */
+#endif
+	}
+	
+	now = TclpGetUTimeMonotonic();
+
+	if ((usec = (desired - now)) <= 0 /* or tolerance */) {
+	    /*
+	     * Self calibration - sleep was too long, so adjust related value.
+	     */
+	    if (calibValue && (unsigned int)-usec > *calibValue) {
+		*calibValue = (*calibValue + (unsigned int)-usec) / 2;
+	    }
+	    /* end of sleep */
+	    break;
+	}
+    }
+}
 
 /*
  *----------------------------------------------------------------------
@@ -851,10 +973,10 @@ Tcl_WaitForEvent(
     Tcl_Time *timePtr)		/* Maximum block time, or NULL. */
 {
     FileHandler *filePtr;
-    int mask;
-    Tcl_Time vTime;
+    int mask, canWait = 1;
+    Tcl_WideInt endTime = 0, waitTime = 0;
 #ifdef TCL_THREADS
-    int waitForFiles;
+    int waitForFiles = 0;
 #ifdef __CYGWIN__
     MSG msg;
 #endif /* __CYGWIN__ */
@@ -868,11 +990,13 @@ Tcl_WaitForEvent(
     struct timeval timeout, *timeoutPtr;
     int numFound;
 #endif /* TCL_THREADS */
-    ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
+    ThreadSpecificData *tsdPtr;
 
     if (tclStubs.tcl_WaitForEvent != tclOriginalNotifier.waitForEventProc) {
 	return tclStubs.tcl_WaitForEvent(timePtr);
     }
+
+    tsdPtr = TCL_TSD_INIT(&dataKey);
 
     /*
      * Set up the timeout structure. Note that if there are no events to
@@ -881,17 +1005,24 @@ Tcl_WaitForEvent(
      */
 
     if (timePtr != NULL) {
-	/*
-     * TIP #233 (Virtualized Time). Is virtual time in effect? And do
-     * we actually have something to scale? If yes to both then we
-     * call the handler to do this scaling.
-	 */
 
-	if (timePtr->sec != 0 || timePtr->usec != 0) {
-	    vTime = *timePtr;
-	    tclScaleTimeProcPtr(&vTime, tclTimeClientData);
-	    timePtr = &vTime;
+	waitTime = TCL_TIME_TO_USEC(*timePtr);
+	/* TIP #233: Scale from virtual time to real-time  */
+	TclpScaleUTime(&waitTime);
+	/*
+	 * Note the time can be switched (time-jump), so use monotonic time here.
+	 */
+	endTime = TclpGetUTimeMonotonic() + waitTime;
+
+	/* 
+	 * If short wait or no wait at all, just process events already available
+	 * right now, avoid waiting too long somewhere (NRT-capability fix).
+	 */
+	if (!timePtr->sec && timePtr->usec < TCL_TMR_MIN_DELAY) {
+
+	    canWait = 0;
 	}
+
 #ifndef TCL_THREADS
 	timeout.tv_sec = timePtr->sec;
 	timeout.tv_usec = timePtr->usec;
@@ -921,18 +1052,14 @@ Tcl_WaitForEvent(
 
     pthread_mutex_lock(&notifierMutex);
 
-    if (timePtr != NULL && timePtr->sec == 0 && (timePtr->usec == 0
-#if defined(__APPLE__) && defined(__LP64__)
-	    /*
-	     * On 64-bit Darwin, pthread_cond_timedwait() appears to have
-	     * a bug that causes it to wait forever when passed an
-	     * absolute time which has already been exceeded by the system
-	     * time; as a workaround, when given a very brief timeout,
-	     * just do a poll. [Bug 1457797]
-	     */
-	    || timePtr->usec < 10
-#endif /* __APPLE__ && __LP64__ */
-	    )) {
+    waitForFiles = (tsdPtr->numFdBits > 0);
+
+    /* if cannot wait (but not really necessary to wait), bypass triggering pipe */
+    if (!canWait && (!waitForFiles || tsdPtr->eventReady)) {
+	goto nowait;
+    }
+
+    if (!canWait) {
 	/*
 	 * Cannot emulate a polling select with a polling condition
 	 * variable. Instead, pretend to wait for files and tell the
@@ -941,11 +1068,11 @@ Tcl_WaitForEvent(
 	 * state as ours currently is. We block until that happens.
 	 */
 
-	waitForFiles = 1;
-	tsdPtr->pollState = POLL_WANT;
-	timePtr = NULL;
+	if (waitForFiles) {
+	    tsdPtr->pollState = POLL_WANT;
+	    canWait = 1;
+	}
     } else {
-	waitForFiles = (tsdPtr->numFdBits > 0);
 	tsdPtr->pollState = 0;
     }
 
@@ -970,17 +1097,41 @@ Tcl_WaitForEvent(
 	}
     }
 
+  nowait:
+
     FD_ZERO(&tsdPtr->readyMasks.readable);
     FD_ZERO(&tsdPtr->readyMasks.writable);
     FD_ZERO(&tsdPtr->readyMasks.exception);
 
-    if (!tsdPtr->eventReady) {
-#ifdef __CYGWIN__
+    while (!tsdPtr->eventReady) {
+
+	if (canWait && timePtr) {
+
+	    waitTime = endTime - TclpGetUTimeMonotonic();
+
+	    /* Note: we should wait at least once if waitForFiles set */
+	    if (waitTime <= 0) {
+		if (!waitForFiles) {
+		    break; /* end of wait */
+		}
+		waitForFiles = 0;
+		waitTime = 0;
+	    }
+	    else
+	    if (waitTime <= TCL_TMR_OVERHEAD) {
+		if (!waitForFiles) {
+		    canWait = 0;
+		}
+		waitForFiles = 0;
+	    }
+	}
+
+#  ifdef __CYGWIN__
 	if (!PeekMessageW(&msg, NULL, 0, 0, 0)) {
 	    DWORD timeout;
 
 	    if (timePtr) {
-		timeout = timePtr->sec * 1000 + timePtr->usec / 1000;
+		timeout = waitTime / 1000;
 	    } else {
 		timeout = 0xFFFFFFFF;
 	    }
@@ -988,24 +1139,70 @@ Tcl_WaitForEvent(
 	    MsgWaitForMultipleObjects(1, &tsdPtr->event, 0, timeout, 1279);
 	    pthread_mutex_lock(&notifierMutex);
 	}
-#else
-	if (timePtr != NULL) {
-	    Tcl_Time now;
+#  else
+	/* prevent too long waiting (NRT-capability) */
+	if ( !canWait ) {
+	    /* short sleep */
+	    if (waitTime) {
+		TclpUSleep(waitTime);
+	    }
+	    break; /* end of wait */
+	}
+	else
+	if (timePtr) {
 	    struct timespec ptime;
 
-	    Tcl_GetTime(&now);
-	    ptime.tv_sec = timePtr->sec + now.sec + (timePtr->usec + now.usec) / 1000000;
-	    ptime.tv_nsec = 1000 * ((timePtr->usec + now.usec) % 1000000);
+	    clock_gettime(tsdPtr->waitCVMono ? 
+		CLOCK_MONOTONIC : CLOCK_REALTIME, &ptime);
+	    ptime.tv_sec += waitTime / 1000000;
+	    ptime.tv_nsec += (waitTime % 1000000) * 1000;
+	    if (ptime.tv_nsec > 1000000*1000) {
+		ptime.tv_nsec -= 1000000*1000;
+		ptime.tv_sec++;
+	    }
 
-	    pthread_cond_timedwait(&tsdPtr->waitCV, &notifierMutex, &ptime);
+#    if defined(__APPLE__) && defined(__LP64__)
+	    /*
+	     * On 64-bit Darwin, pthread_cond_timedwait() appears to have
+	     * a bug that causes it to wait forever when passed an
+	     * absolute time which has already been exceeded by the system
+	     * time; as a workaround, when given a very brief timeout,
+	     * just increment a bit the waiting-time from now. [Bug 1457797]
+	     */
+	    if (waitTime <= 0) {
+		ptime.tv_sec = now.sec;
+		ptime.tv_nsec = 1000 * now.usec + 10; /* + 10 nanosecond */
+	    }
+#    else
+	    /* remove overhead in nsec */
+	    if (ptime.tv_nsec < TCL_TMR_OVERHEAD * 1000) {
+	    	ptime.tv_nsec += 1000000*1000;
+	    	ptime.tv_sec--;
+	    }
+	    ptime.tv_nsec -= TCL_TMR_OVERHEAD * 1000;
+	    
+#    endif /* __APPLE__ && __LP64__ */
+
+	    if (ptime.tv_nsec > 1000000*1000) {
+		ptime.tv_nsec -= 1000000*1000;
+		ptime.tv_sec++;
+	    }
+	    if (pthread_cond_timedwait(&tsdPtr->waitCV, &notifierMutex,
+			&ptime) == ETIMEDOUT) {
+		continue; /* repeat wait (if not yet real timeout) */
+	    };
 	} else {
 	    pthread_cond_wait(&tsdPtr->waitCV, &notifierMutex);
 	}
-#endif /* __CYGWIN__ */
-    }
-    tsdPtr->eventReady = 0;
+#  endif /* __CYGWIN__ */
 
-#ifdef __CYGWIN__
+	break; /* end of wait */
+    }
+    if (tsdPtr->eventReady > 0) {
+	tsdPtr->eventReady--;
+    }
+
+#  ifdef __CYGWIN__
     while (PeekMessageW(&msg, NULL, 0, 0, 0)) {
 	/*
 	 * Retrieve and dispatch the message.
@@ -1022,9 +1219,9 @@ Tcl_WaitForEvent(
 	}
     }
     ResetEvent(tsdPtr->event);
-#endif /* __CYGWIN__ */
+#  endif /* __CYGWIN__ */
 
-    if (waitForFiles && tsdPtr->onList) {
+    if (tsdPtr->onList) {
 	/*
 	 * Remove the ThreadSpecificData structure of this thread from the
 	 * waiting list. Alert the notifier thread to recompute its select
@@ -1048,7 +1245,7 @@ Tcl_WaitForEvent(
 	}
     }
 
-#else
+#else /* !TCL_THREADS */
     tsdPtr->readyMasks = tsdPtr->checkMasks;
     numFound = select(tsdPtr->numFdBits, &tsdPtr->readyMasks.readable,
 	    &tsdPtr->readyMasks.writable, &tsdPtr->readyMasks.exception,
@@ -1064,7 +1261,7 @@ Tcl_WaitForEvent(
 	FD_ZERO(&tsdPtr->readyMasks.writable);
 	FD_ZERO(&tsdPtr->readyMasks.exception);
     }
-#endif /* TCL_THREADS */
+#endif /* !TCL_THREADS */
 
     /*
      * Queue all detected file events before returning.
@@ -1272,7 +1469,7 @@ NotifierThreadProc(
 	    }
 
 	    if (found || (tsdPtr->pollState & POLL_DONE)) {
-		tsdPtr->eventReady = 1;
+		tsdPtr->eventReady++;
 		if (tsdPtr->onList) {
 		    /*
 		     * Remove the ThreadSpecificData structure of this thread

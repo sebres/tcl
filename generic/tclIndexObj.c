@@ -27,7 +27,7 @@ static void		FreeIndex(Tcl_Obj *objPtr);
  * that can be invoked by generic object code.
  */
 
-static Tcl_ObjType indexType = {
+Tcl_ObjType tclIndexType = {
     "index",				/* name */
     FreeIndex,				/* freeIntRepProc */
     DupIndex,				/* dupIntRepProc */
@@ -59,6 +59,43 @@ typedef struct {
 	(&(STRING_AT(table, offset)))
 #define EXPAND_OF(indexRep) \
 	STRING_AT((indexRep)->tablePtr, (indexRep)->offset*(indexRep)->index)
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclObjIsIndexOfStruct --
+ *
+ *	This function looks up an object's is a index of given table.
+ *
+ *	Used for fast lookup by dynamic options count to check for other
+ *	object types.
+ *
+ * Results:
+ *	1 if object is an option of table, otherwise 0.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+int
+TclObjIsIndexOfStruct(
+    Tcl_Obj *objPtr,		/* Object containing the string to lookup. */
+    const void *tablePtr)	/* Array of strings to compare against the
+				 * value of objPtr; last entry must be NULL
+				 * and there must not be duplicate entries. */
+{
+    IndexRep *indexRep;
+    if (objPtr->typePtr != &tclIndexType) {
+	return 0;
+    }
+    indexRep = objPtr->internalRep.twoPtrValue.ptr1;
+
+    if (indexRep->tablePtr != (void *) tablePtr) {
+	return 0;
+    }
+    return 1;
+}
 
 /*
  *----------------------------------------------------------------------
@@ -105,7 +142,7 @@ Tcl_GetIndexFromObj(
      * the common case where the result is cached).
      */
 
-    if (objPtr->typePtr == &indexType) {
+    if (objPtr->typePtr == &tclIndexType) {
 	IndexRep *indexRep = objPtr->internalRep.twoPtrValue.ptr1;
 
 	/*
@@ -179,7 +216,7 @@ Tcl_GetIndexFromObjStruct(
      * See if there is a valid cached result from a previous lookup.
      */
 
-    if (objPtr->typePtr == &indexType) {
+    if (objPtr->typePtr == &tclIndexType) {
 	indexRep = objPtr->internalRep.twoPtrValue.ptr1;
 	if (indexRep->tablePtr==tablePtr && indexRep->offset==offset) {
 	    *indexPtr = indexRep->index;
@@ -240,13 +277,13 @@ Tcl_GetIndexFromObjStruct(
      * operation.
      */
 
-    if (objPtr->typePtr == &indexType) {
+    if (objPtr->typePtr == &tclIndexType) {
  	indexRep = objPtr->internalRep.twoPtrValue.ptr1;
     } else {
 	TclFreeIntRep(objPtr);
  	indexRep = (IndexRep *) ckalloc(sizeof(IndexRep));
  	objPtr->internalRep.twoPtrValue.ptr1 = indexRep;
- 	objPtr->typePtr = &indexType;
+ 	objPtr->typePtr = &tclIndexType;
     }
     indexRep->tablePtr = (void *) tablePtr;
     indexRep->offset = offset;
@@ -382,7 +419,7 @@ DupIndex(
 
     memcpy(dupIndexRep, srcIndexRep, sizeof(IndexRep));
     dupPtr->internalRep.twoPtrValue.ptr1 = dupIndexRep;
-    dupPtr->typePtr = &indexType;
+    dupPtr->typePtr = &tclIndexType;
 }
 
 /*
@@ -532,7 +569,7 @@ Tcl_WrongNumArgs(
 	     * Add the element, quoting it if necessary.
 	     */
 
-	    if (origObjv[i]->typePtr == &indexType) {
+	    if (origObjv[i]->typePtr == &tclIndexType) {
 		register IndexRep *indexRep =
 			origObjv[i]->internalRep.twoPtrValue.ptr1;
 
@@ -588,7 +625,7 @@ Tcl_WrongNumArgs(
 	 * Otherwise, just use the string rep.
 	 */
 
-	if (objv[i]->typePtr == &indexType) {
+	if (objv[i]->typePtr == &tclIndexType) {
 	    register IndexRep *indexRep = objv[i]->internalRep.twoPtrValue.ptr1;
 
 	    Tcl_AppendStringsToObj(objPtr, EXPAND_OF(indexRep), NULL);

@@ -1738,7 +1738,7 @@ test chan-io-14.9 {reuse of stdio special channels} {stdio openpipe fileevent} {
     # Added delay to give Windows time to stop the spawned process and clean
     # up its grip on the file test1. Added delete as proper test cleanup.
     # The failing tests were 18.1 and 18.2 as first re-users of file "test1".
-    after 10000
+    after 1000
     file delete $path(script)
     file delete $path(test1)
     set c
@@ -6869,17 +6869,17 @@ test chan-io-53.7 {CopyData: Flooding chan copy from pipe} -setup {
     set fcopyTestCount 0
     set f1 [open $path(pipe) w]
     chan puts $f1 {
-	# Write  10 bytes / 10 msec
+	# Write  10 bytes / 1 msec
 	proc Write {count} {
 	    chan puts -nonewline "1234567890"
 	    if {[incr count -1]} {
-	        after 10 [list Write $count]
+	        after 1 [list Write $count]
 	    } else {
 	        set ::ready 1
 	    }
 	}
 	chan configure stdout -buffering none
-	Write 345 ;# 3450 bytes ~3.45 sec
+	Write 345 ;# 3450 bytes ~0.345 sec
 	vwait ready
 	exit 0
     }
@@ -6991,11 +6991,11 @@ test chan-io-53.9 {CopyData: -size and event interaction, Bug 780533} -setup {
     chan puts $pipe {
 	chan configure stdout -translation binary -buffering line
 	chan puts stderr Waiting...
-	after 1000
+	after 100
 	foreach x {a b c} {
 	    chan puts stderr Looping...
 	    chan puts $x
-	    after 500
+	    after 50
 	}
 	proc bye args {
 	    if {[chan gets stdin line]<0} {
@@ -7119,7 +7119,10 @@ test chan-io-54.1 {Recursive channel events} {socket fileevent} {
 	lappend result $next
 	if {$next == 1} {
 	    chan event $s readable [namespace code [list readit $s 2]]
-	    vwait [namespace which -variable x]
+	    if {![vwait 2000 [namespace which -variable x]]} {
+		set x failure
+		error "timeout: too long wait"
+	    }
 	}
 	incr x
     }
@@ -7148,9 +7151,7 @@ test chan-io-54.1 {Recursive channel events} {socket fileevent} {
     lappend result [chan gets $cs]
     chan configure $cs -blocking off
     chan event $cs readable [namespace code [list readit $cs 1]]
-    set a [after 2000 [namespace code { set x failure }]]
     vwait [namespace which -variable x]
-    after cancel $a
     chan close $as
     chan close $ss
     chan close $cs
