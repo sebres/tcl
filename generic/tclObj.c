@@ -546,9 +546,23 @@ FillICL(
      * We will try to reuse the old entry memory here (and simply replace
      * a content).
      */
-    if (clLocPtr && clLocPtr->num != num) {
-	clLocPtr = ckrealloc(clLocPtr,
-			   sizeof(ContLineLoc) + num*sizeof(int));
+    if (clLocPtr) {
+	if (clLocPtr->num != num) {
+	    if (clLocPtr->loc == loc) {
+		/* we can't copy inplace - duplicate and free original */
+		ContLineLoc *orgLocPtr = clLocPtr;
+
+		clLocPtr = ckalloc(sizeof(ContLineLoc) + num * sizeof(int));
+		clLocPtr->num = num;
+		memcpy(&clLocPtr->loc, loc, num * sizeof(int));
+		clLocPtr->loc[num] = CLL_END;       /* Sentinel */
+		ckfree(orgLocPtr);
+		return clLocPtr;
+	    }
+	    /* we can safe realocate it */
+	    clLocPtr = ckrealloc(clLocPtr,
+			  sizeof(ContLineLoc) + num * sizeof(int));
+	}
     } else {
 	clLocPtr = ckalloc(sizeof(ContLineLoc) + num*sizeof(int));
     }
@@ -1720,6 +1734,7 @@ Tcl_GetUtfFromObj(
     	size_t offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
 	*lengthPtr = (int)objPtr->length;
 	bytes = (const char *)TclGetStringSegmentBytes(strSegPtr) + offset;
+	assert(bytes != NULL);
 	return bytes;
     }
 
@@ -1728,6 +1743,7 @@ Tcl_GetUtfFromObj(
 	    /* ByteCode */
 	    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
 	    *lengthPtr = codePtr->numSrcBytes;
+	    assert(codePtr->source != NULL);
 	    return codePtr->source;
 	}
     }
@@ -1737,6 +1753,7 @@ Tcl_GetUtfFromObj(
      */
     if ((bytes = objPtr->bytes)) {
 	*lengthPtr = objPtr->length;
+	assert(bytes != NULL);
 	return bytes;
     }
 
@@ -1745,6 +1762,7 @@ Tcl_GetUtfFromObj(
      */
     bytes = Tcl_GetString(objPtr);
     *lengthPtr = objPtr->length;
+    assert(bytes != NULL);
     return bytes;
 }
 

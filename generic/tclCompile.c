@@ -975,11 +975,19 @@ TclNewCodeSegmentObj(
     size_t offset = 0;
 
 
+    if (bytes == NULL) {
+	assert(length == 0); /* possible only in this case */
+	if (!strSegPtr) {
+	    return Tcl_NewStringObj(NULL, 0);
+	}
+	bytes = TclGetStringSegmentBytes(strSegPtr);
+    }
+
     TclNewObj(objPtr);
 
+    assert(bytes != NULL);
     objPtr->bytes = NULL;
 
-    assert(bytes != NULL);
     if (strSegPtr) {
 	const char *segBytes = TclGetStringSegmentBytes(strSegPtr);
 	/* check bytes is included in segment (duplicate on demand only) */
@@ -1137,15 +1145,18 @@ TclGetStringSegmentFromObj(
 	strSegPtr = (StringSegment *)objPtr->internalRep.twoPtrValue.ptr1;
 #if 1
 	if (flags & TCLSEG_FULL_SEGREP) {
-	    /* check it owns fully included segment */
-	    if ( !strSegPtr->parentPtr 
-		&& (objPtr->internalRep.twoPtrValue.ptr2 /* offset */
-		    || objPtr->length != strSegPtr->length
-		)
-	    ) {
+
+	    const char *segBytes = TclGetStringSegmentBytes(strSegPtr);
+	    size_t offset = 0;
+	    if (objPtr->bytes) {
+		offset = objPtr->bytes - segBytes;
+	    } else {
+		offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
+	    }
+	    /* fully included requested, check it (duplicate segment on demand) */
+	    if (offset || objPtr->length != strSegPtr->length) {
 		/* not fully included - duplicate reference to parent */
 		StringSegment *orgSegPtr = strSegPtr;
-		size_t offset = (size_t)objPtr->internalRep.twoPtrValue.ptr2;
 
 		strSegPtr = DupStringSegment(strSegPtr, offset, objPtr->length);
 		strSegPtr->refCount++;
