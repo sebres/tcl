@@ -239,7 +239,8 @@ TclCreateLiteralEx(
      */
 
     if (envPtr && (flags & LITERAL_CODE_SEGMENT)) {
-	objPtr = TclNewCodeSegmentObj(envPtr->strSegPtr, bytes, length);
+	objPtr = TclNewCodeSegmentObj(envPtr->strSegPtr, bytes, length,
+	    TCLSEG_DUP_STRREP);
     } else {
 	TclNewObj(objPtr);
 	if ((flags & LITERAL_ON_HEAP)) {

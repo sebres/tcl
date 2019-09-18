@@ -982,6 +982,12 @@ ResetObjResult(
 	Tcl_IncrRefCount(objResultPtr);
 	iPtr->objResultPtr = objResultPtr;
     } else {
+	/* 
+	 * Free internal representation firstly, be sure it does not share 
+	 * bytes reference 
+	 */
+	TclFreeIntRep(objResultPtr);
+	/* now string representation */
 	if (objResultPtr->bytes != tclEmptyStringRep) {
 	    if (objResultPtr->bytes) {
 		ckfree(objResultPtr->bytes);
@@ -989,7 +995,6 @@ ResetObjResult(
 	    objResultPtr->bytes = tclEmptyStringRep;
 	    objResultPtr->length = 0;
 	}
-	TclFreeIntRep(objResultPtr);
     }
 }
 

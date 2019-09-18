@@ -99,9 +99,6 @@ typedef struct ThreadSpecificData {
 
 static Tcl_ThreadDataKey dataKey;
 
-static void             TclThreadFinalizeContLines(ClientData clientData);
-static ThreadSpecificData *TclGetContLineTable(void);
-
 /*
  * Nested Tcl_Obj deletion management support
  *
@@ -510,46 +507,7 @@ TclFinalizeObjects(void)
     Tcl_MutexUnlock(&tclObjMutex);
 }
 
-/*
- *----------------------------------------------------------------------
- *
- * TclGetContLineTable --
- *
- *	This procedure is a helper which returns the thread-specific
- *	hash-table used to track continuation line information associated with
- *	Tcl_Obj*, and the objThreadMap, etc.
- *
- * Results:
- *	A reference to the thread-data.
- *
- * Side effects:
- *	May allocate memory for the thread-data.
- *
- * TIP #280
- *----------------------------------------------------------------------
- */
 
-static ThreadSpecificData *
-TclGetContLineTable(void)
-{
-    /*
-     * Initialize the hashtable tracking invisible continuation lines.  For
-     * the release we use a thread exit handler to ensure that this is done
-     * before TSD blocks are made invalid. The TclFinalizeObjects() which
-     * would be the natural place for this is invoked afterwards, meaning that
-     * we try to operate on a data structure already gone.
-     */
-
-    ThreadSpecificData *tsdPtr = TCL_TSD_INIT(&dataKey);
-
-    if (!tsdPtr->lineCLPtr) {
-	tsdPtr->lineCLPtr = ckalloc(sizeof(Tcl_HashTable));
-	Tcl_InitHashTable(tsdPtr->lineCLPtr, TCL_ONE_WORD_KEYS);
-	Tcl_CreateThreadExitHandler(TclThreadFinalizeContLines,NULL);
-    }
-    return tsdPtr;
-}
-
 /*
  *----------------------------------------------------------------------
  *
@@ -574,14 +532,11 @@ TclContinuationsEnter(
     int num,
     int *loc)
 {
-    int newEntry;
-    ThreadSpecificData *tsdPtr = TclGetContLineTable();
-    Tcl_HashEntry *hPtr =
-	    Tcl_CreateHashEntry(tsdPtr->lineCLPtr, objPtr, &newEntry);
-    ContLineLoc *clLocPtr = ckalloc(sizeof(ContLineLoc) + num*sizeof(int));
-    //!!!!!! printf("++++ cont-enter: %d, %p, %.80s\n", newEntry, objPtr, Tcl_GetString(objPtr));
+    ContLineLoc *clLocPtr;
+    StringSegment *strSegPtr;
 
-    if (!newEntry) {
+    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
+    if (strSegPtr->clLocPtr != NULL) {
 	/*
 	 * We're entering ContLineLoc data for the same value more than one
 	 * time. Taking care not to leak the old entry.
@@ -593,23 +548,23 @@ TclContinuationsEnter(
 	 * locations (offset) of invisible continuation lines in the literal
 	 * are the same for all occurences.
 	 *
-	 * Note that while reusing the existing entry is possible it requires
-	 * the same actions as for a new entry because we have to copy the
-	 * incoming num/loc data even so. Because we are called from
-	 * TclContinuationsEnterDerived for this case, which modified the
-	 * stored locations (Rebased to the proper relative offset). Just
-	 * returning the stored entry would rebase them a second time, or
-	 * more, hosing the data. It is easier to simply replace, as we are
-	 * doing.
+	 * We will try to reuse the old entry memory here (and simply replace
+	 * a content).
 	 */
 
-	ckfree(Tcl_GetHashValue(hPtr));
+	clLocPtr = strSegPtr->clLocPtr;
+	if (clLocPtr->num != num) {
+	    clLocPtr = ckrealloc(clLocPtr,
+			   sizeof(ContLineLoc) + num*sizeof(int));
+	}
+    } else {
+	clLocPtr = ckalloc(sizeof(ContLineLoc) + num*sizeof(int));
     }
 
     clLocPtr->num = num;
     memcpy(&clLocPtr->loc, loc, num*sizeof(int));
     clLocPtr->loc[num] = CLL_END;       /* Sentinel */
-    Tcl_SetHashValue(hPtr, clLocPtr);
+    strSegPtr->clLocPtr = clLocPtr;
 
     return clLocPtr;
 }
@@ -731,14 +686,22 @@ TclContinuationsCopy(
     Tcl_Obj *objPtr,
     Tcl_Obj *originObjPtr)
 {
-    ThreadSpecificData *tsdPtr = TclGetContLineTable();
-    Tcl_HashEntry *hPtr =
-            Tcl_FindHashEntry(tsdPtr->lineCLPtr, originObjPtr);
+    StringSegment *origSegPtr, *strSegPtr;
 
-    if (hPtr) {
-	ContLineLoc *clLocPtr = Tcl_GetHashValue(hPtr);
+    /* only if segment can be obtained (also avoid shimmering problems) */
+    origSegPtr = TclGetStringSegmentFromObj(originObjPtr, TCLSEG_EXISTS);
+    if (!origSegPtr) {
+    	return;
+    }
+    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_FULL_SEGREP);
 
-	TclContinuationsEnter(objPtr, clLocPtr->num, clLocPtr->loc);
+    /* if both objects don't share same segment */
+    if (origSegPtr != strSegPtr) {
+	ContLineLoc *clLocPtr = origSegPtr->clLocPtr;
+
+	if (clLocPtr) {
+	    TclContinuationsEnter(objPtr, clLocPtr->num, clLocPtr->loc);
+	}
     }
 }
 
@@ -765,54 +728,11 @@ ContLineLoc *
 TclContinuationsGet(
     Tcl_Obj *objPtr)
 {
-    ThreadSpecificData *tsdPtr = TclGetContLineTable();
-    Tcl_HashEntry *hPtr =
-            Tcl_FindHashEntry(tsdPtr->lineCLPtr, objPtr);
+    StringSegment *strSegPtr;
 
-    if (!hPtr) {
-        return NULL;
-    }
-    return Tcl_GetHashValue(hPtr);
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclThreadFinalizeContLines --
- *
- *	This procedure is a helper which releases all continuation line
- *	information currently known. It is run as a thread exit handler.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	Releases memory.
- *
- * TIP #280
- *----------------------------------------------------------------------
- */
-
-static void
-TclThreadFinalizeContLines(
-    ClientData clientData)
-{
-    /*
-     * Release the hashtable tracking invisible continuation lines.
-     */
-
-    ThreadSpecificData *tsdPtr = TclGetContLineTable();
-    Tcl_HashEntry *hPtr;
-    Tcl_HashSearch hSearch;
-
-    for (hPtr = Tcl_FirstHashEntry(tsdPtr->lineCLPtr, &hSearch);
-	    hPtr != NULL; hPtr = Tcl_NextHashEntry(&hSearch)) {
-	ckfree(Tcl_GetHashValue(hPtr));
-	Tcl_DeleteHashEntry(hPtr);
-    }
-    Tcl_DeleteHashTable(tsdPtr->lineCLPtr);
-    ckfree(tsdPtr->lineCLPtr);
-    tsdPtr->lineCLPtr = NULL;
+    /* only if segment can be obtained (also avoid shimmering problems) */
+    strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_EXISTS);
+    return strSegPtr ? strSegPtr->clLocPtr : NULL;
 }
 
 /*
@@ -1744,8 +1664,9 @@ Tcl_ObjHasBytes(
  * Results:
  *	Returns a pointer to the unalterable string representation of objPtr,
  *	which in opposite to Tcl_GetStringFromObj (Tcl_GetString) is not 
- *	guaranteed null-terminated string (NTS) string for example could be
+ *	guaranteed null-terminated string (NTS) for example could be
  *	a part of some buffer (or code).
+ *	Also it may contain original not wrapped line continuations (\\\n).
  *
  * Side effects:
  *	May call the object's updateStringProc to update the string

@@ -876,7 +876,7 @@ CompileAssembleObj(
 	strSegPtr->refCount++;
 	TclInvalidateByteCodeInternalRep(objPtr);
     } else {
-	strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	strSegPtr = TclGetStringSegmentFromObj(objPtr, 0);
 	strSegPtr->refCount++;
     }
 

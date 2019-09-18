@@ -2177,6 +2177,8 @@ TclSubstTokens(
     Interp *iPtr = (Interp *) interp;
     int inFile = iPtr->evalFlags & TCL_EVAL_FILE;
 
+    StringSegment *parSegPtr = NULL; /* reserved for future dev */
+
     /*
      * Each pass through this loop will substitute one token, and its
      * components, if any. The only thing tricky here is that we go to some
@@ -2373,7 +2375,13 @@ TclSubstTokens(
 	    if (appendObj != NULL) {
 		result = appendObj;
 	    } else {
+		#if 1
+		result = TclNewCodeSegmentObj(parSegPtr,
+			    append, appendByteLength,
+			    TCLSEG_DUP_STRREP | (numCL?TCLSEG_FULL_SEGREP:0));
+		#else
 		result = Tcl_NewStringObj(append, appendByteLength);
+		#endif
 	    }
 	    Tcl_IncrRefCount(result);
 	} else {

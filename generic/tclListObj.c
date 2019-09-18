@@ -114,6 +114,7 @@ NewListIntRep(
     listRepPtr->canonicalFlag = 0;
     listRepPtr->refCount = 0;
     listRepPtr->maxElemCount = objc;
+    listRepPtr->strSegPtr = NULL;
 
     if (objv) {
 	Tcl_Obj **elemPtrs;
@@ -1740,6 +1741,9 @@ FreeListInternalRep(
 	for (i = 0;  i < numElems;  i++) {
 	    Tcl_DecrRefCount(elemPtrs[i]);
 	}
+	if (listRepPtr->strSegPtr) {
+	    TclFreeStringSegment(listRepPtr->strSegPtr);
+	}
 	ckfree(listRepPtr);
     }
 
@@ -1846,6 +1850,7 @@ SetListFromAny(
 	}
     } else {
 	int estCount, length;
+	StringSegment *strSegPtr;
 	const char *limit, *nextElem = Tcl_GetUtfFromObj(objPtr, &length);
 
 	/*
@@ -1861,6 +1866,13 @@ SetListFromAny(
 	    return TCL_ERROR;
 	}
 	elemPtrs = &listRepPtr->elements;
+
+	/* try to obtain original string segment if we can retain sharing this */
+	strSegPtr = TclGetStringSegmentFromObj(objPtr, TCLSEG_EXISTS);
+	if (strSegPtr) {
+	    strSegPtr->refCount++;
+	    listRepPtr->strSegPtr = strSegPtr;
+	}
 
 	/*
 	 * Each iteration, parse and store a list element.

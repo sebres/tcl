@@ -201,30 +201,6 @@ typedef struct ExtCmdLoc {
     int nuloc;			/* Number of used entries in 'loc'. */
 } ExtCmdLoc;
 
-typedef struct StringSegment StringSegment;
-
-typedef struct StringSegment {
-    TCL_HASH_TYPE hash;		/* Hash of this string segment. */
-    size_t refCount;		/* Count all references of this segment. */
-    StringSegment *parentPtr;	/* Parent segment (sharing string memory). */
-    union {
-	char *ptr;		/* Pointer to string (parentPtr == NULL) or */
-	size_t offset;		/* offset to string part (parentPtr != NULL). */
-    } bytes;
-    int length;			/* Size of string in bytes. */
-    unsigned int line;		/* Line in source this object can be found. */
-} StringSegment;
-
-#define TclGetStringSegmentBytes(strSegPtr) \
-	    (!(strSegPtr)->parentPtr ? (strSegPtr)->bytes.ptr : \
-		(strSegPtr)->parentPtr->bytes.ptr + (strSegPtr)->bytes.offset)
-
-MODULE_SCOPE Tcl_Obj *	TclNewCodeSegmentObj(StringSegment *strSegPtr,
-			    const char *bytes, unsigned long length);
-
-MODULE_SCOPE StringSegment *TclGetStringSegmentFromObj(Tcl_Obj *objPtr);
-MODULE_SCOPE void	TclFreeStringSegment(StringSegment *strSegPtr);
-
 /*
  * CompileProcs need the ability to record information during compilation that
  * can be used by bytecode instructions during execution. The AuxData

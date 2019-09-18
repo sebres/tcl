@@ -1544,7 +1544,7 @@ CompileExprObj(
 	const char *string = Tcl_GetUtfFromObj(objPtr, &length);
 
 	TclInitCompileEnv(interp, &compEnv, string, length, NULL, 0);
-	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr);
+	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr, 0);
 	compEnv.strSegPtr->refCount++;
 
 	TclCompileExpr(interp, string, length, &compEnv, 0);

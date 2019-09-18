@@ -877,6 +877,8 @@ typedef struct VarInHash {
  *----------------------------------------------------------------
  */
 
+typedef struct StringSegment StringSegment;
+
 /*
  * Forward declaration to prevent an error when the forward reference to
  * Command is encountered in the Proc and ImportRef types declared below.
@@ -2361,6 +2363,7 @@ typedef struct List {
 				 * derived from the list representation. May
 				 * be ignored if there is no string rep at
 				 * all.*/
+    StringSegment *strSegPtr;	/* String segment of the list (avoid shimmering). */
     Tcl_Obj *elements;		/* First list element; the struct is grown to
 				 * accommodate all elements. */
 } List;
@@ -4033,6 +4036,39 @@ MODULE_SCOPE void	TclFreeObjEntry(Tcl_HashEntry *hPtr);
 MODULE_SCOPE unsigned	TclHashObjKey(Tcl_HashTable *tablePtr, void *keyPtr);
 
 MODULE_SCOPE int	TclFullFinalizationRequested(void);
+
+/*
+ * tclObj.c / tclCompile.c shared implementation of code segment object.
+ */
+
+typedef struct StringSegment {
+    TCL_HASH_TYPE hash;		/* Hash of this string segment. */
+    size_t refCount;		/* Count all references of this segment. */
+    StringSegment *parentPtr;	/* Parent segment (sharing string memory). */
+    union {
+	char *ptr;		/* Pointer to string (parentPtr == NULL) or */
+	size_t offset;		/* offset to string part (parentPtr != NULL). */
+    } bytes;
+    int length;			/* Size of string in bytes. */
+    unsigned int line;		/* Line in source this object can be found. */
+    ContLineLoc *clLocPtr;	/* Locations of invisible continuation lines. */
+} StringSegment;
+
+#define TclGetStringSegmentBytes(strSegPtr) \
+	    (!(strSegPtr)->parentPtr ? (strSegPtr)->bytes.ptr : \
+		(strSegPtr)->parentPtr->bytes.ptr + (strSegPtr)->bytes.offset)
+
+#define TCLSEG_EXISTS	    0x01 /* Only if segment exists (avoid creation & shimmering) */
+#define TCLSEG_FULL_SEGREP  0x02 /* Force new segment representation if not fully
+				  * included (offset > 0 or length < parent.length). */
+#define TCLSEG_DUP_STRREP   0x08 /* Create new string representation if not included in parent */
+
+MODULE_SCOPE Tcl_Obj *	TclNewCodeSegmentObj(StringSegment *strSegPtr,
+			    const char *bytes, unsigned long length, int flags);
+
+MODULE_SCOPE StringSegment *TclGetStringSegmentFromObj(Tcl_Obj *objPtr,
+				int flags);
+MODULE_SCOPE void	TclFreeStringSegment(StringSegment *strSegPtr);
 
 /*
  * Utility routines for encoding index values as integers. Used by both
