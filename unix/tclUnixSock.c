@@ -1692,15 +1692,14 @@ TcpAccept(
     len = sizeof(addr);
     newsock = accept(fds->fd, &addr.sa, &len);
     if (newsock < 0) {
-	return;
+	fds->statePtr->connectError = errno;
+    } else {
+	/*
+	 * Set close-on-exec flag to prevent the newly accepted socket from
+	 * being inherited by child processes.
+	 */
+	(void) fcntl(newsock, F_SETFD, FD_CLOEXEC);
     }
-
-    /*
-     * Set close-on-exec flag to prevent the newly accepted socket from being
-     * inherited by child processes.
-     */
-
-    (void) fcntl(newsock, F_SETFD, FD_CLOEXEC);
 
     newSockState = ckalloc(sizeof(TcpState));
     memset(newSockState, 0, sizeof(TcpState));
