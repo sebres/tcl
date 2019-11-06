@@ -744,10 +744,9 @@ test socket_$af-2.13 {Bug 1758a0b603} {socket stdio} {
     set done
 } write
 proc testSockOnFDExhaustion {{limitn {}}} {
-    upvar path path localhost localhost
-    set f [open $path(script) w]
-    puts $f {
-	lassign $::argv localhost wait
+    upvar localhost localhost
+    set code {
+	lassign $argv localhost wait
 	if {$localhost eq ""} {
 	   set localhost 127.0.0.1
 	}
@@ -792,40 +791,62 @@ proc testSockOnFDExhaustion {{limitn {}}} {
         after cancel $tout
         # exit.
     }
-    close $f
-    set pipe [open |[list [interpreter] $path(script) $localhost $limitn] r+]
-    chan configure $pipe -buffering line
-    if {$limitn ne {} && $limitn} {
-	if {[catch {
-	   exec prlimit -p [pid $pipe] --nofile=$limitn
-	} msg]} {
-	    puts "set of limit ($limitn) is impossible: $msg"
+    if {[singleProcess]} { # evaluate test in same process:
+	set orglimitn {}
+	if {$limitn ne {} && $limitn} {
+	    if {[catch {
+		set orglimitn [exec prlimit -n -o SOFT --noheadings]
+		exec prlimit -p [pid] --nofile=${limitn}:
+	    } msg]} {
+		puts "set of limit ($limitn) is impossible: $msg"
+	    }
 	}
-	puts $pipe "go"
+	interp create i
+	i eval [list set argv [list $localhost]]
+	i eval {
+	    proc gets args {}
+	    proc puts l {lappend ::done {*}$l}
+	}
+	i eval $code
+	set done [i eval {set ::done}]
+	interp delete i
+	if {$orglimitn ne {}} {
+	    exec prlimit -p [pid] --nofile=${orglimitn}:
+	}
+    } else { # evaluate test in child process:
+	upvar path path
+	set f [open $path(script) w]
+	puts $f $code
+	close $f
+	set pipe [open |[list [interpreter] $path(script) $localhost $limitn] r+]
+	chan configure $pipe -buffering line
+	if {$limitn ne {} && $limitn} {
+	    if {[catch {
+		exec prlimit -p [pid $pipe] --nofile=$limitn
+	    } msg]} {
+		puts "set of limit ($limitn) is impossible: $msg"
+	    }
+	    puts $pipe "go"
+	}
+	set done {}
+	while {[gets $pipe line] >= 0} {lappend done {*}$line}
+	close $pipe
+	file delete $path(script)
     }
-    set done {}
-    while {[gets $pipe line] >= 0} {lappend done {*}$line}
-    close $pipe
     set done
 }
 test socket_$af-2.14 {accept on descriptors exhaustion (ENOBUFS/EMFILE), bug [c6897e6e6a]} \
 -constraints {socket stdio macOrUnix} -body {
     testSockOnFDExhaustion
 } -match regexp \
--result {1 \{couldn't open socket: (too many open|host is unreachable)[^\}]*\} 0 \{READY: 10\}} \
--cleanup {
-    file delete $path(script)
-}
+-result {1 \{couldn't open socket: (too many open|host is unreachable)[^\}]*\} 0 \{READY: 10\}}
 test socket_$af-2.15 {accept on descriptors exhaustion (ENOBUFS/EMFILE), bug [c6897e6e6a]} \
 -constraints {socket stdio macOrUnix prlimit} -body {
     # same as 2.14, but in state where limit of open files exceeds FD_SETSIZE,
     # so set limit for process larger as FD_SETSIZE (default 1024):
     testSockOnFDExhaustion [expr {2*1024}]
 } -match regexp \
--result {1 \{couldn't open socket: (too many open|host is unreachable)[^\}]*\} 0 \{READY: 10\}} \
--cleanup {
-    file delete $path(script)
-}
+-result {1 \{couldn't open socket: (too many open|host is unreachable)[^\}]*\} 0 \{READY: 10\}}
 
 test socket_$af-3.1 {socket conflict} -constraints [list socket supported_$af stdio] -setup {
     file delete $path(script)

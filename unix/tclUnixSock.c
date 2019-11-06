@@ -178,6 +178,7 @@ static TclInitProcessGlobalValueProc InitializeHostName;
 static ProcessGlobalValue hostName =
 	{0, 0, NULL, NULL, InitializeHostName, NULL, NULL};
 
+#define CHECK_FD_SETSIZE_LIMIT
 const char * fdSetSizeViolationMsg = 
 	"too many open descriptors, violation of the set-size limit";
 
@@ -1213,6 +1214,7 @@ TcpConnect(
 
 	    statePtr->fds.fd = fd = socket(
 		statePtr->u.c.addr->ai_family, SOCK_STREAM, 0);
+#ifdef CHECK_FD_SETSIZE_LIMIT
 	    if (fd >= FD_SETSIZE) {
 		close(fd);
 		error = EBADFD;
@@ -1220,6 +1222,7 @@ TcpConnect(
 		statePtr->fds.fd = fd = -1;
 		goto out;
 	    }
+#endif
 	    if (fd < 0) {
 		if (errno == EMFILE) {
 		    goto out;
@@ -1556,11 +1559,13 @@ Tcl_OpenTcpServer(
     for (addrPtr = addrlist; addrPtr != NULL; addrPtr = addrPtr->ai_next) {
 	sock = socket(addrPtr->ai_family, addrPtr->ai_socktype,
                 addrPtr->ai_protocol);
+#ifdef CHECK_FD_SETSIZE_LIMIT
 	if (sock >= FD_SETSIZE) {
 	    my_errno = EBADFD;
 	    errorMsg = fdSetSizeViolationMsg;
 	    goto done;
 	}
+#endif
 	if (sock == -1) {
 	    if (howfar < SOCKET) {
 		howfar = SOCKET;
@@ -1744,11 +1749,13 @@ TcpAccept(
 
     len = sizeof(addr);
     newsock = accept(fds->fd, &addr.sa, &len);
+#ifdef CHECK_FD_SETSIZE_LIMIT
     if (newsock >= FD_SETSIZE) {
 	close(newsock);
 	/* errorMsg = fdSetSizeViolationMsg; */
 	newsock = -1;
     }
+#endif
     if (newsock < 0) {
     	/* avoid busy wait: retard accept event */
     	len = 0;
