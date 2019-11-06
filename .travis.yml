@@ -3,174 +3,6 @@ language: c
 
 matrix:
   include:
-# Testing on Linux with various compilers
-    - name: "Linux/GCC/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC/Static"
-      os: linux
-      dist: xenial
-      compiler: gcc
-      env:
-        - CFGOPT="--disable-shared"
-        - BUILD_DIR=unix
-    - name: "Linux/GCC/Debug"
-      os: linux
-      dist: xenial
-      compiler: gcc
-      env:
-        - BUILD_DIR=unix
-        - CFGOPT="--enable-symbols"
-# Older versions of GCC...
-    - name: "Linux/GCC 7/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-7
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-7
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 6/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-6
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-6
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 5/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-5
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-5
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/GCC 4.9/Shared"
-      os: linux
-      dist: xenial
-      compiler: gcc-4.9
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-4.9
-      env:
-        - BUILD_DIR=unix
-# Clang
-    - name: "Linux/Clang/Shared"
-      os: linux
-      dist: xenial
-      compiler: clang
-      env:
-        - BUILD_DIR=unix
-    - name: "Linux/Clang/Static"
-      os: linux
-      dist: xenial
-      compiler: clang
-      env:
-        - CFGOPT="--disable-shared"
-        - BUILD_DIR=unix
-    - name: "Linux/Clang/Debug"
-      os: linux
-      dist: xenial
-      compiler: clang
-      env:
-        - BUILD_DIR=unix
-        - CFGOPT="--enable-symbols"
-# Testing on Mac, various styles
-    - name: "macOS/Xcode 11/Shared/Unix-like"
-      os: osx
-      osx_image: xcode11
-      env:
-        - BUILD_DIR=unix
-        - CFGOPT="--enable-threads"
-    - name: "macOS/Xcode 11/Shared"
-      os: osx
-      osx_image: xcode11
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: &mactest
-        - make all
-        # The styles=develop avoids some weird problems on OSX
-        - make test styles=develop
-    - name: "macOS/Xcode 10/Shared"
-      os: osx
-      osx_image: xcode10.3
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: *mactest
-    - name: "macOS/Xcode 9/Shared"
-      os: osx
-      osx_image: xcode9
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: *mactest
-    - name: "macOS/Xcode 8/Shared"
-      os: osx
-      osx_image: xcode8
-      env:
-        - BUILD_DIR=macosx
-      install: []
-      script: *mactest
-# Test with mingw-w64 cross-compile
-# Doesn't run tests because wine is only an imperfect Windows emulation
-    - name: "Linux-cross-Windows/GCC/Shared/no test"
-      os: linux
-      dist: xenial
-      compiler: x86_64-w64-mingw32-gcc
-      addons:
-        apt:
-          packages:
-            - gcc-mingw-w64-base
-            - binutils-mingw-w64-x86-64
-            - gcc-mingw-w64-x86-64
-            - gcc-mingw-w64
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--host=x86_64-w64-mingw32 --enable-64bit --enable-threads"
-      script: &crosstest
-        - make all tcltest
-        # Include a high visibility marker that tests are skipped outright
-        - >
-          echo "`tput setaf 3`SKIPPED TEST: CROSS COMPILING`tput sgr0`"
-# Test with mingw-w64 (32 bit) cross-compile
-# Doesn't run tests because wine is only an imperfect Windows emulation
-    - name: "Linux-cross-Windows-32/GCC/Shared/no test"
-      os: linux
-      dist: xenial
-      compiler: i686-w64-mingw32-gcc
-      addons:
-        apt:
-          packages:
-            - gcc-mingw-w64-base
-            - binutils-mingw-w64-i686
-            - gcc-mingw-w64-i686
-            - gcc-mingw-w64
-            - gcc-multilib
-      env:
-        - BUILD_DIR=win
-        - CFGOPT="--host=i686-w64-mingw32 --enable-threads"
-      script: *crosstest
 # Test on Windows with MSVC native
     - name: "Windows/MSVC/Shared"
       os: windows
@@ -184,7 +16,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
     - name: "Windows/MSVC/Static"
       os: windows
       compiler: cl
@@ -193,7 +25,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=static,msvcrt,threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
     - name: "Windows/MSVC/Debug"
       os: windows
       compiler: cl
@@ -202,7 +34,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x64 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
 # Test on Windows with MSVC native (32-bit)
     - name: "Windows/MSVC-x86/Shared"
       os: windows
@@ -212,7 +44,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
     - name: "Windows/MSVC-x86/Static"
       os: windows
       compiler: cl
@@ -221,7 +53,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=static,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=static,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=static,msvcrt,threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
     - name: "Windows/MSVC-x86/Debug"
       os: windows
       compiler: cl
@@ -230,7 +62,7 @@ matrix:
       install: []
       script:
         - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc all tcltest'
-        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test'
+        - cmd.exe /C 'vcvarsall.bat x86 && nmake OPTS=symbols,msvcrt,threads -f makefile.vc test TESTFLAGS="-file cmdMZ.test"'
 # Test on Windows with GCC native
     - name: "Windows/GCC/Shared"
       os: windows
@@ -285,4 +117,4 @@ before_script:
   - export ERROR_ON_FAILURES=1
 script:
   - make all tcltest
-  - make test
+  - make test TESTFLAGS="-file cmdMZ.test"
