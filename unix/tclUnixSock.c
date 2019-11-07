@@ -179,6 +179,10 @@ static ProcessGlobalValue hostName =
 	{0, 0, NULL, NULL, InitializeHostName, NULL, NULL};
 
 #define CHECK_FD_SETSIZE_LIMIT
+
+#if defined(CHECK_FD_SETSIZE_LIMIT) && !defined(EBADFD)
+#  define EBADFD EMFILE
+#endif
 const char * fdSetSizeViolationMsg = 
 	"too many open descriptors, violation of the set-size limit";
 
