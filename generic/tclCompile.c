@@ -787,22 +787,11 @@ DupCodeSegmentInternalRep(
 {
     StringSegment *strSegPtr = srcPtr->internalRep.twoPtrValue.ptr1;
     copyPtr->typePtr = &tclCodeSegmentType;
-#if 1
-    /* be sure we have clean (full included) segment */
-    strSegPtr = DupStringSegment(strSegPtr,
-	(size_t)srcPtr->internalRep.twoPtrValue.ptr2 /* offset */,
-	srcPtr->length);
-    copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
-    copyPtr->internalRep.twoPtrValue.ptr2 = (void *)0; /* no offset */
-    copyPtr->length = srcPtr->length;
-    strSegPtr->refCount++;
-#else
     copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
     copyPtr->internalRep.twoPtrValue.ptr2 =
 		srcPtr->internalRep.twoPtrValue.ptr2;
     copyPtr->length = srcPtr->length;
     strSegPtr->refCount++;
-#endif
 }
 
 static inline void
@@ -1447,11 +1436,6 @@ DupByteCodeInternalRep(
 	const char *bytes = TclGetStringSegmentBytes(strSegPtr);
 	size_t offset = bytes - codePtr->source; /* normally always 0 */
 	assert(bytes >= codePtr->source);
-#if 1
-	/* be sure we have clean (full included) segment */
-	strSegPtr = DupStringSegment(strSegPtr, offset, codePtr->numSrcBytes);
-	offset = 0;
-#endif
 	strSegPtr->refCount++;
 	copyPtr->typePtr = &tclCodeSegmentType;
 	copyPtr->internalRep.twoPtrValue.ptr1 = strSegPtr;
