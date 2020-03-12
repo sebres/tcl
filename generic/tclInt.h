@@ -877,6 +877,8 @@ typedef struct VarInHash {
  *----------------------------------------------------------------
  */
 
+typedef struct StringSegment StringSegment;
+
 /*
  * Forward declaration to prevent an error when the forward reference to
  * Command is encountered in the Proc and ImportRef types declared below.
@@ -960,6 +962,8 @@ typedef struct Proc {
     CompiledLocal *lastLocalPtr;/* Pointer to the last allocated local
 				 * variable or NULL if none. This has frame
 				 * index (numCompiledLocals-1). */
+    struct CmdFrame * cfPtr;	/* Holds the location information for proc's 
+				 * body. */
 } Proc;
 
 /*
@@ -2026,17 +2030,8 @@ typedef struct Interp {
 				 * active. */
     int invokeWord;		/* Index of the word in the command which
 				 * is getting compiled. */
-    Tcl_HashTable *linePBodyPtr;/* This table remembers for each statically
-				 * defined procedure the location information
-				 * for its body. It is keyed by the address of
-				 * the Proc structure for a procedure. The
-				 * values are "struct CmdFrame*". */
-    Tcl_HashTable *lineBCPtr;	/* This table remembers for each ByteCode
-				 * object the location information for its
-				 * body. It is keyed by the address of the
-				 * Proc structure for a procedure. The values
-				 * are "struct ExtCmdLoc*". (See
-				 * tclCompile.h) */
+    Tcl_HashTable *unused_LPBP;	/* No longer used (was linePBodyPtr) */
+    Tcl_HashTable *unused_LBCP;	/* No longer used (was lineBCPtr) */
     Tcl_HashTable *lineLABCPtr;
     Tcl_HashTable *lineLAPtr;	/* This table remembers for each argument of a
 				 * command on the execution stack the index of
@@ -2368,6 +2363,7 @@ typedef struct List {
 				 * derived from the list representation. May
 				 * be ignored if there is no string rep at
 				 * all.*/
+    ContLineLoc *clLocPtr;	/* Locations of invisible continuation lines. */
     Tcl_Obj *elements;		/* First list element; the struct is grown to
 				 * accommodate all elements. */
 } List;
@@ -2688,13 +2684,16 @@ MODULE_SCOPE const Tcl_ObjType tclBignumType;
 MODULE_SCOPE const Tcl_ObjType tclBooleanType;
 MODULE_SCOPE const Tcl_ObjType tclByteArrayType;
 MODULE_SCOPE const Tcl_ObjType tclByteCodeType;
+MODULE_SCOPE const Tcl_ObjType tclCodeSegmentType;
 MODULE_SCOPE const Tcl_ObjType tclDoubleType;
 MODULE_SCOPE const Tcl_ObjType tclEndOffsetType;
+MODULE_SCOPE const Tcl_ObjType tclExprCodeType;
 MODULE_SCOPE const Tcl_ObjType tclIntType;
 MODULE_SCOPE const Tcl_ObjType tclListType;
 MODULE_SCOPE const Tcl_ObjType tclDictType;
 MODULE_SCOPE const Tcl_ObjType tclProcBodyType;
 MODULE_SCOPE const Tcl_ObjType tclStringType;
+MODULE_SCOPE const Tcl_ObjType tclSubstCodeType;
 MODULE_SCOPE const Tcl_ObjType tclArraySearchType;
 MODULE_SCOPE const Tcl_ObjType tclEnsembleCmdType;
 #ifndef TCL_WIDE_INT_IS_LONG
@@ -2884,6 +2883,7 @@ MODULE_SCOPE int	TclChanCaughtErrorBypass(Tcl_Interp *interp,
 			    Tcl_Channel chan);
 MODULE_SCOPE Tcl_ObjCmdProc TclChannelNamesCmd;
 MODULE_SCOPE Tcl_NRPostProc TclClearRootEnsemble;
+MODULE_SCOPE ContLineLoc *TclContinuationsDupICL(ContLineLoc *clLocPtr);
 MODULE_SCOPE ContLineLoc *TclContinuationsEnter(Tcl_Obj *objPtr, int num,
 			    int *loc);
 MODULE_SCOPE void	TclContinuationsEnterDerived(Tcl_Obj *objPtr,
@@ -2980,7 +2980,6 @@ MODULE_SCOPE Tcl_Obj *	TclGetBgErrorHandler(Tcl_Interp *interp);
 MODULE_SCOPE int	TclGetChannelFromObj(Tcl_Interp *interp,
 			    Tcl_Obj *objPtr, Tcl_Channel *chanPtr,
 			    int *modePtr, int flags);
-MODULE_SCOPE CmdFrame *	TclGetCmdFrameForProcedure(Proc *procPtr);
 MODULE_SCOPE int	TclGetCompletionCodeFromObj(Tcl_Interp *interp,
 			    Tcl_Obj *value, int *code);
 MODULE_SCOPE int	TclGetNumberFromObj(Tcl_Interp *interp,
@@ -3036,7 +3035,7 @@ MODULE_SCOPE Tcl_Obj *	TclLindexList(Tcl_Interp *interp,
 MODULE_SCOPE Tcl_Obj *	TclLindexFlat(Tcl_Interp *interp, Tcl_Obj *listPtr,
 			    int indexCount, Tcl_Obj *const indexArray[]);
 /* TIP #280 */
-MODULE_SCOPE void	TclListLines(Tcl_Obj *listObj, int line, int n,
+MODULE_SCOPE int	TclListLines(Tcl_Obj *listObj, int line, int n,
 			    int *lines, Tcl_Obj *const *elems);
 MODULE_SCOPE Tcl_Obj *	TclListObjCopy(Tcl_Interp *interp, Tcl_Obj *listPtr);
 MODULE_SCOPE Tcl_Obj *	TclLsetList(Tcl_Interp *interp, Tcl_Obj *listPtr,
@@ -3074,6 +3073,8 @@ MODULE_SCOPE int	TclParseNumber(Tcl_Interp *interp, Tcl_Obj *objPtr,
 MODULE_SCOPE void	TclParseInit(Tcl_Interp *interp, const char *string,
 			    int numBytes, Tcl_Parse *parsePtr);
 MODULE_SCOPE int	TclParseAllWhiteSpace(const char *src, int numBytes);
+MODULE_SCOPE void	TclProcCmdFrameFree(CmdFrame *cfPtr);
+MODULE_SCOPE CmdFrame *	TclProcCmdFrameSet(Proc *procPtr, int lineIdx, int adj);
 MODULE_SCOPE int	TclProcessReturn(Tcl_Interp *interp,
 			    int code, int level, Tcl_Obj *returnOpts);
 MODULE_SCOPE int	TclpObjLstat(Tcl_Obj *pathPtr, Tcl_StatBuf *buf);
@@ -3302,6 +3303,13 @@ MODULE_SCOPE Tcl_Obj *	TclDictWithInit(Tcl_Interp *interp, Tcl_Obj *dictPtr,
 MODULE_SCOPE int	Tcl_DisassembleObjCmd(ClientData clientData,
 			    Tcl_Interp *interp, int objc,
 			    Tcl_Obj *const objv[]);
+
+MODULE_SCOPE const char * Tcl_GetUtfFromObj(Tcl_Obj *objPtr, int *lengthPtr);
+MODULE_SCOPE int	Tcl_ObjHasBytes(Tcl_Obj *objPtr);
+MODULE_SCOPE void	TclFreeByteCodeInternalRep(Tcl_Obj *objPtr);
+MODULE_SCOPE void	TclInvalidateByteCodeInternalRep(Tcl_Obj *objPtr);
+MODULE_SCOPE void	TclUpdateStringOfByteCode(Tcl_Obj *objPtr);
+MODULE_SCOPE Tcl_Obj *	TclCopyByteCodeObject(Tcl_Obj *objPtr);
 
 /* Assemble command function */
 MODULE_SCOPE int	Tcl_AssembleObjCmd(ClientData clientData,
@@ -4029,6 +4037,39 @@ MODULE_SCOPE void	TclFreeObjEntry(Tcl_HashEntry *hPtr);
 MODULE_SCOPE unsigned	TclHashObjKey(Tcl_HashTable *tablePtr, void *keyPtr);
 
 MODULE_SCOPE int	TclFullFinalizationRequested(void);
+
+/*
+ * tclObj.c / tclCompile.c shared implementation of code segment object.
+ */
+
+typedef struct StringSegment {
+    TCL_HASH_TYPE hash;		/* Hash of this string segment. */
+    size_t refCount;		/* Count all references of this segment. */
+    StringSegment *parentPtr;	/* Parent segment (sharing string memory). */
+    union {
+	char *ptr;		/* Pointer to string (parentPtr == NULL) or */
+	size_t offset;		/* offset to string part (parentPtr != NULL). */
+    } bytes;
+    int length;			/* Size of string in bytes. */
+    unsigned int line;		/* Line in source this object can be found. */
+    ContLineLoc *clLocPtr;	/* Locations of invisible continuation lines. */
+} StringSegment;
+
+#define TclGetStringSegmentBytes(strSegPtr) \
+	    (!(strSegPtr)->parentPtr ? (strSegPtr)->bytes.ptr : \
+		(strSegPtr)->parentPtr->bytes.ptr + (strSegPtr)->bytes.offset)
+
+#define TCLSEG_EXISTS	    0x01 /* Only if segment exists (avoid creation & shimmering) */
+#define TCLSEG_FULL_SEGREP  0x02 /* Force new segment representation if not fully
+				  * included (offset > 0 or length < parent.length). */
+#define TCLSEG_DUP_STRREP   0x08 /* Create new string representation if not included in parent */
+
+MODULE_SCOPE Tcl_Obj *	TclNewCodeSegmentObj(StringSegment *strSegPtr,
+			    const char *bytes, unsigned long length, int flags);
+
+MODULE_SCOPE StringSegment *TclGetStringSegmentFromObj(Tcl_Obj *objPtr,
+				int flags);
+MODULE_SCOPE void	TclFreeStringSegment(StringSegment *strSegPtr);
 
 /*
  * Utility routines for encoding index values as integers. Used by both

@@ -279,7 +279,6 @@ static int		CreateMirrorJumpTable(AssemblyEnv* assemEnvPtr,
 static int		FindLocalVar(AssemblyEnv* envPtr,
 			    Tcl_Token** tokenPtrPtr);
 static int		FinishAssembly(AssemblyEnv*);
-static void		FreeAssembleCodeInternalRep(Tcl_Obj *objPtr);
 static void		FreeAssemblyEnv(AssemblyEnv*);
 static int		GetBooleanOperand(AssemblyEnv*, Tcl_Token**, int*);
 static int		GetListIndexOperand(AssemblyEnv*, Tcl_Token**, int*);
@@ -319,7 +318,7 @@ static void		UnstackExpiredCatches(CompileEnv*, BasicBlock*, int,
 
 static const Tcl_ObjType assembleCodeType = {
     "assemblecode",
-    FreeAssembleCodeInternalRep, /* freeIntRepProc */
+    TclFreeByteCodeInternalRep,  /* freeIntRepProc */
     DupAssembleCodeInternalRep,	 /* dupIntRepProc */
     NULL,			 /* updateStringProc */
     NULL			 /* setFromAnyProc */
@@ -847,7 +846,10 @@ CompileAssembleObj(
     int status;			/* Status return from Tcl_AssembleCode */
     const char* source;		/* String representation of the source code */
     int sourceLen;		/* Length of the source code in bytes */
+    StringSegment *strSegPtr;
 
+
+    source = Tcl_GetUtfFromObj(objPtr, &sourceLen);
 
     /*
      * Get the expression ByteCode from the object. If it exists, make sure it
@@ -867,18 +869,23 @@ CompileAssembleObj(
 	}
 
 	/*
-	 * Not valid, so free it and regenerate.
+	 * Not valid, so obtain string segment, free code and regenerate.
 	 */
 
-	FreeAssembleCodeInternalRep(objPtr);
+	strSegPtr = codePtr->strSegPtr;
+	strSegPtr->refCount++;
+	TclInvalidateByteCodeInternalRep(objPtr);
+    } else {
+	strSegPtr = TclGetStringSegmentFromObj(objPtr, 0);
+	strSegPtr->refCount++;
     }
 
     /*
      * Set up the compilation environment, and assemble the code.
      */
 
-    source = TclGetStringFromObj(objPtr, &sourceLen);
     TclInitCompileEnv(interp, &compEnv, source, sourceLen, NULL, 0);
+    compEnv.strSegPtr = strSegPtr;
     status = TclAssembleCode(&compEnv, source, sourceLen, TCL_EVAL_DIRECT);
     if (status != TCL_OK) {
 	/*
@@ -4310,37 +4317,6 @@ DupAssembleCodeInternalRep(
     (void)srcPtr;
     (void)copyPtr;
     return;
-}
-
-/*
- *-----------------------------------------------------------------------------
- *
- * FreeAssembleCodeInternalRep --
- *
- *	Part of the Tcl object type implementation for Tcl expression
- *	bytecode. Frees the storage allocated to hold the internal rep, unless
- *	ref counts indicate bytecode execution is still in progress.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	May free allocated memory. Leaves objPtr untyped.
- *
- *-----------------------------------------------------------------------------
- */
-
-static void
-FreeAssembleCodeInternalRep(
-    Tcl_Obj *objPtr)
-{
-    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
-
-    codePtr->refCount--;
-    if (codePtr->refCount <= 0) {
-	TclCleanupByteCode(codePtr);
-    }
-    objPtr->typePtr = NULL;
 }
 
 /*

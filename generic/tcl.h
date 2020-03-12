@@ -469,6 +469,10 @@ typedef unsigned TCL_WIDE_INT_TYPE	Tcl_WideUInt;
 #else
     typedef struct stat Tcl_StatBuf;
 #endif
+
+#ifndef TCL_HASH_TYPE
+#  define TCL_HASH_TYPE unsigned
+#endif
 
 /*
  *----------------------------------------------------------------------------

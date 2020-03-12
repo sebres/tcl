@@ -540,12 +540,8 @@ Tcl_CreateInterp(void)
      */
 
     iPtr->cmdFramePtr = NULL;
-    iPtr->linePBodyPtr = ckalloc(sizeof(Tcl_HashTable));
-    iPtr->lineBCPtr = ckalloc(sizeof(Tcl_HashTable));
     iPtr->lineLAPtr = ckalloc(sizeof(Tcl_HashTable));
     iPtr->lineLABCPtr = ckalloc(sizeof(Tcl_HashTable));
-    Tcl_InitHashTable(iPtr->linePBodyPtr, TCL_ONE_WORD_KEYS);
-    Tcl_InitHashTable(iPtr->lineBCPtr, TCL_ONE_WORD_KEYS);
     Tcl_InitHashTable(iPtr->lineLAPtr, TCL_ONE_WORD_KEYS);
     Tcl_InitHashTable(iPtr->lineLABCPtr, TCL_ONE_WORD_KEYS);
     iPtr->scriptCLLocPtr = NULL;
@@ -1388,7 +1384,6 @@ DeleteInterpProc(
     Tcl_HashSearch search;
     Tcl_HashTable *hTablePtr;
     ResolverScheme *resPtr, *nextResPtr;
-    int i;
 
     /*
      * Punt if there is an error in the Tcl_Release/Tcl_Preserve matchup,
@@ -1586,58 +1581,6 @@ DeleteInterpProc(
      */
 
     TclDeleteLiteralTable(interp, &iPtr->literalTable);
-
-    /*
-     * TIP #280 - Release the arrays for ByteCode/Proc extension, and
-     * contents.
-     */
-
-    for (hPtr = Tcl_FirstHashEntry(iPtr->linePBodyPtr, &search);
-	    hPtr != NULL;
-	    hPtr = Tcl_NextHashEntry(&search)) {
-	CmdFrame *cfPtr = Tcl_GetHashValue(hPtr);
-	Proc *procPtr = (Proc *) Tcl_GetHashKey(iPtr->linePBodyPtr, hPtr);
-
-	procPtr->iPtr = NULL;
-	if (cfPtr) {
-	    if (cfPtr->type == TCL_LOCATION_SOURCE) {
-		Tcl_DecrRefCount(cfPtr->data.eval.path);
-	    }
-	    ckfree(cfPtr->line);
-	    ckfree(cfPtr);
-	}
-	Tcl_DeleteHashEntry(hPtr);
-    }
-    Tcl_DeleteHashTable(iPtr->linePBodyPtr);
-    ckfree(iPtr->linePBodyPtr);
-    iPtr->linePBodyPtr = NULL;
-
-    /*
-     * See also tclCompile.c, TclCleanupByteCode
-     */
-
-    for (hPtr = Tcl_FirstHashEntry(iPtr->lineBCPtr, &search);
-	    hPtr != NULL;
-	    hPtr = Tcl_NextHashEntry(&search)) {
-	ExtCmdLoc *eclPtr = Tcl_GetHashValue(hPtr);
-
-	if (eclPtr->type == TCL_LOCATION_SOURCE) {
-	    Tcl_DecrRefCount(eclPtr->path);
-	}
-	for (i=0; i< eclPtr->nuloc; i++) {
-	    ckfree(eclPtr->loc[i].line);
-	}
-
-	if (eclPtr->loc != NULL) {
-	    ckfree(eclPtr->loc);
-	}
-
-	ckfree(eclPtr);
-	Tcl_DeleteHashEntry(hPtr);
-    }
-    Tcl_DeleteHashTable(iPtr->lineBCPtr);
-    ckfree(iPtr->lineBCPtr);
-    iPtr->lineBCPtr = NULL;
 
     /*
      * Location stack for uplevel/eval/... scripts which were passed through
@@ -5719,19 +5662,17 @@ TclArgumentBCEnter(
     int cmd,
     int pc)
 {
-    ExtCmdLoc *eclPtr;
+    BCExtLineInfo *bcLI;
     int word;
     ECL *ePtr;
     CFWordBC *lastPtr = NULL;
     Interp *iPtr = (Interp *) interp;
-    Tcl_HashEntry *hePtr =
-	    Tcl_FindHashEntry(iPtr->lineBCPtr, (char *) codePtr);
 
-    if (!hePtr) {
+    bcLI = TclByteCodeGetELI((ByteCode *)codePtr);
+    if (!bcLI || !bcLI->eclPtr) {
 	return;
     }
-    eclPtr = Tcl_GetHashValue(hePtr);
-    ePtr = &eclPtr->loc[cmd];
+    ePtr = &bcLI->eclPtr->loc[cmd];
 
     /*
      * ePtr->nline is the number of words originally parsed.
@@ -5887,7 +5828,7 @@ TclArgumentGet(
      * up by the caller. It knows better than us.
      */
 
-    if ((obj->bytes == NULL) || TclListObjIsCanonical(obj)) {
+    if (!Tcl_ObjHasBytes(obj) || TclListObjIsCanonical(obj)) {
 	return;
     }
 

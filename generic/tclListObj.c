@@ -12,6 +12,7 @@
  */
 
 #include "tclInt.h"
+#include <assert.h>
 
 /*
  * Prototypes for functions defined later in this file:
@@ -114,6 +115,7 @@ NewListIntRep(
     listRepPtr->canonicalFlag = 0;
     listRepPtr->refCount = 0;
     listRepPtr->maxElemCount = objc;
+    listRepPtr->clLocPtr = NULL;
 
     if (objv) {
 	Tcl_Obj **elemPtrs;
@@ -675,6 +677,10 @@ Tcl_ListObjAppendElement(
      */
 
     TclInvalidateStringRep(listPtr);
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
+    }
     return TCL_OK;
 }
 
@@ -1073,6 +1079,10 @@ Tcl_ListObjReplace(
      */
 
     TclInvalidateStringRep(listPtr);
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
+    }
     return TCL_OK;
 }
 
@@ -1515,12 +1525,21 @@ TclLsetFlat(
 	Tcl_Obj *objPtr = chainPtr;
 
 	if (result == TCL_OK) {
+	    List *listRepPtr;
+	    
+	    assert(objPtr->typePtr == &tclListType);
+	    listRepPtr = ListRepPtr(objPtr);
+
 	    /*
 	     * We're going to store valuePtr, so spoil string reps of all
 	     * containing lists.
 	     */
 
 	    TclInvalidateStringRep(objPtr);
+	    if (listRepPtr->clLocPtr) {
+		ckfree(listRepPtr->clLocPtr);
+		listRepPtr->clLocPtr = NULL;
+	    }
 	}
 
 	/*
@@ -1556,7 +1575,7 @@ TclLsetFlat(
     } else {
 	TclListObjSetElement(NULL, subListPtr, index, valuePtr);
     }
-    TclInvalidateStringRep(subListPtr);
+
     Tcl_IncrRefCount(retValuePtr);
     return retValuePtr;
 }
@@ -1707,6 +1726,13 @@ TclListObjSetElement(
 
     elemPtrs[index] = valuePtr;
 
+    /* Invalidate object string representation */
+    TclInvalidateStringRep(listPtr);
+    if (listRepPtr->clLocPtr) {
+	ckfree(listRepPtr->clLocPtr);
+	listRepPtr->clLocPtr = NULL;
+    }
+
     return TCL_OK;
 }
 
@@ -1739,6 +1765,9 @@ FreeListInternalRep(
 
 	for (i = 0;  i < numElems;  i++) {
 	    Tcl_DecrRefCount(elemPtrs[i]);
+	}
+	if (listRepPtr->clLocPtr) {
+	    ckfree(listRepPtr->clLocPtr);
 	}
 	ckfree(listRepPtr);
     }
@@ -1846,7 +1875,8 @@ SetListFromAny(
 	}
     } else {
 	int estCount, length;
-	const char *limit, *nextElem = TclGetStringFromObj(objPtr, &length);
+	ContLineLoc *clLocPtr;
+	const char *limit, *nextElem = Tcl_GetUtfFromObj(objPtr, &length);
 
 	/*
 	 * Allocate enough space to hold a (Tcl_Obj *) for each
@@ -1861,6 +1891,12 @@ SetListFromAny(
 	    return TCL_ERROR;
 	}
 	elemPtrs = &listRepPtr->elements;
+
+	/* try to obtain original ICL if object contains that */
+	clLocPtr = TclContinuationsGet(objPtr);
+	if (clLocPtr) {
+	    listRepPtr->clLocPtr = TclContinuationsDupICL(clLocPtr);
+	}
 
 	/*
 	 * Each iteration, parse and store a list element.

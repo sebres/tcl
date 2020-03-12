@@ -751,7 +751,6 @@ static Tcl_Obj *	ExecuteExtendedBinaryMathOp(Tcl_Interp *interp,
 			    Tcl_Obj *valuePtr, Tcl_Obj *value2Ptr);
 static Tcl_Obj *	ExecuteExtendedUnaryMathOp(int opcode,
 			    Tcl_Obj *valuePtr);
-static void		FreeExprCodeInternalRep(Tcl_Obj *objPtr);
 static ExceptionRange *	GetExceptRangeForPc(const unsigned char *pc,
 			    int searchMode, ByteCode *codePtr);
 static const char *	GetSrcInfoForPc(const unsigned char *pc,
@@ -778,11 +777,11 @@ static Tcl_NRPostProc   TEBCresume;
  * compiled bytecode for Tcl expressions.
  */
 
-static const Tcl_ObjType exprCodeType = {
+const Tcl_ObjType tclExprCodeType = {
     "exprcode",
-    FreeExprCodeInternalRep,	/* freeIntRepProc */
+    TclFreeByteCodeInternalRep,	/* freeIntRepProc */
     DupExprCodeInternalRep,	/* dupIntRepProc */
-    NULL,			/* updateStringProc */
+    TclUpdateStringOfByteCode,	/* updateStringProc */
     NULL			/* setFromAnyProc */
 };
 
@@ -1524,7 +1523,7 @@ CompileExprObj(
      * Get the expression ByteCode from the object. If it exists, make sure it
      * is valid in the current context.
      */
-    if (objPtr->typePtr == &exprCodeType) {
+    if (objPtr->typePtr == &tclExprCodeType) {
 	Namespace *namespacePtr = iPtr->varFramePtr->nsPtr;
 
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
@@ -1533,18 +1532,21 @@ CompileExprObj(
 		|| (codePtr->nsPtr != namespacePtr)
 		|| (codePtr->nsEpoch != namespacePtr->resolverEpoch)
 		|| (codePtr->localCachePtr != iPtr->varFramePtr->localCachePtr)) {
-	    FreeExprCodeInternalRep(objPtr);
+	    TclInvalidateByteCodeInternalRep(objPtr);
 	}
     }
-    if (objPtr->typePtr != &exprCodeType) {
+    if (objPtr->typePtr != &tclExprCodeType) {
 	/*
 	 * TIP #280: No invoker (yet) - Expression compilation.
 	 */
 
 	int length;
-	const char *string = TclGetStringFromObj(objPtr, &length);
+	const char *string = Tcl_GetUtfFromObj(objPtr, &length);
 
 	TclInitCompileEnv(interp, &compEnv, string, length, NULL, 0);
+	compEnv.strSegPtr = TclGetStringSegmentFromObj(objPtr, 0);
+	compEnv.strSegPtr->refCount++;
+
 	TclCompileExpr(interp, string, length, &compEnv, 0);
 
 	/*
@@ -1565,7 +1567,7 @@ CompileExprObj(
 
 	TclEmitOpcode(INST_DONE, &compEnv);
 	TclInitByteCodeObj(objPtr, &compEnv);
-	objPtr->typePtr = &exprCodeType;
+	objPtr->typePtr = &tclExprCodeType;
 	TclFreeCompileEnv(&compEnv);
 	codePtr = objPtr->internalRep.twoPtrValue.ptr1;
 	if (iPtr->varFramePtr->localCachePtr) {
@@ -1615,36 +1617,6 @@ DupExprCodeInternalRep(
     Tcl_Obj *copyPtr)
 {
     return;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * FreeExprCodeInternalRep --
- *
- *	Part of the Tcl object type implementation for Tcl expression
- *	bytecode. Frees the storage allocated to hold the internal rep, unless
- *	ref counts indicate bytecode execution is still in progress.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	May free allocated memory. Leaves objPtr untyped.
- *
- *----------------------------------------------------------------------
- */
-
-static void
-FreeExprCodeInternalRep(
-    Tcl_Obj *objPtr)
-{
-    ByteCode *codePtr = objPtr->internalRep.twoPtrValue.ptr1;
-
-    objPtr->typePtr = NULL;
-    if (codePtr->refCount-- <= 1) {
-	TclCleanupByteCode(codePtr);
-    }
 }
 
 /*
@@ -1755,17 +1727,17 @@ TclCompileObj(
 	if (invoker == NULL) {
 	    return codePtr;
 	} else {
-	    Tcl_HashEntry *hePtr =
-		    Tcl_FindHashEntry(iPtr->lineBCPtr, codePtr);
+	    BCExtLineInfo *bcLI;
 	    ExtCmdLoc *eclPtr;
 	    CmdFrame *ctxCopyPtr;
 	    int redo;
 
-	    if (!hePtr) {
+	    bcLI = TclByteCodeGetELI(codePtr);
+            if (!bcLI || !bcLI->eclPtr) {
 		return codePtr;
 	    }
+	    eclPtr = bcLI->eclPtr;
 
-	    eclPtr = Tcl_GetHashValue(hePtr);
 	    redo = 0;
 	    ctxCopyPtr = TclStackAlloc(interp, sizeof(CmdFrame));
 	    *ctxCopyPtr = *invoker;
@@ -8143,9 +8115,7 @@ TEBCresume(
     }
 
     iPtr->cmdFramePtr = bcFramePtr->nextPtr;
-    if (codePtr->refCount-- <= 1) {
-	TclCleanupByteCode(codePtr);
-    }
+    TclReleaseByteCode(codePtr);
     TclStackFree(interp, TD);	/* free my stack */
 
     return result;
@@ -9794,19 +9764,18 @@ TclGetSrcInfoForPc(
 	 * there find the list of word locations for this command.
 	 */
 
-	ExtCmdLoc *eclPtr;
+	BCExtLineInfo *bcLI;
+        ExtCmdLoc *eclPtr;
 	ECL *locPtr = NULL;
 	int srcOffset, i;
-	Interp *iPtr = (Interp *) *codePtr->interpHandle;
-	Tcl_HashEntry *hePtr =
-		Tcl_FindHashEntry(iPtr->lineBCPtr, codePtr);
 
-	if (!hePtr) {
+	bcLI = TclByteCodeGetELI(codePtr);
+	if (!bcLI || !bcLI->eclPtr) {
 	    return;
 	}
+	eclPtr = bcLI->eclPtr;
 
 	srcOffset = cfPtr->cmd - codePtr->source;
-	eclPtr = Tcl_GetHashValue(hePtr);
 
 	for (i=0; i < eclPtr->nuloc; i++) {
 	    if (eclPtr->loc[i].srcOffset == srcOffset) {

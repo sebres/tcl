@@ -1610,11 +1610,11 @@ test info-30.18 {bs+nl, literal word, uplevel through proc, appended, loss of pr
     }
     set res [abra {
 	return "\
-[reduce [info frame 0]]";# line 1613, still line of 3 appended script
+[reduce [info frame 0]]";# line 1613, still line 2 of appended script (script changing before evaluation, because of append in abra)
     }]
     rename abra {}
     set res
-} { type eval line 3 cmd {info frame 0} proc ::abra}
+} { type eval line 2 cmd {info frame 0} proc ::abra}
 # { type source line 1606 file info.test cmd {info frame 0} proc ::abra}
 
 test info-30.19 {bs+nl in single-body switch, compiled} {
