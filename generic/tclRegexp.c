@@ -492,7 +492,7 @@ Tcl_RegExpExecObj(
 	offsets = reStorage->offsets;
 
 	if (textObj->typePtr == &tclByteArrayType) {
-	    matchstr = Tcl_GetByteArrayFromObj(textObj, &length);
+	    matchstr = (const char*)Tcl_GetByteArrayFromObj(textObj, &length);
 	} else {
 	    matchstr = Tcl_GetStringFromObj(textObj, &length);
 	}
@@ -1712,7 +1712,7 @@ TclRegexpPCRE(
      * Get match string and translate offset into correct placement for utf-8 chars.
      */
     if (objPtr->typePtr == &tclByteArrayType) {
-	matchstr = Tcl_GetByteArrayFromObj(objPtr, &stringLength);
+	matchstr = (const char *)Tcl_GetByteArrayFromObj(objPtr, &stringLength);
 	if (offset && offset < stringLength) {
 	    /* XXX: probably needs length restriction */
 	    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
