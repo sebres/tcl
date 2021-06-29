@@ -6539,6 +6539,9 @@ echo "$as_me: WARNING: can't find uname command" >&2;}
 		if test "`uname -s`" = "AIX" ; then
 		    tcl_cv_sys_version=AIX-`uname -v`.`uname -r`
 		fi
+		if test "`uname -s`" = "NetBSD" -a -f /etc/debian_version ; then
+		    tcl_cv_sys_version=NetBSD-Debian
+		fi
 	    fi
 	fi
 
@@ -6648,7 +6651,7 @@ fi
     CFLAGS_OPTIMIZE=-O
     if test "$GCC" = yes; then
 
-	CFLAGS_WARNING="-Wall"
+	CFLAGS_WARNING="-Wall -Wpointer-arith"
 
 else
   CFLAGS_WARNING=""
@@ -7575,7 +7578,6 @@ fi
 		# Step 4 will set the necessary variables
 		DL_OBJS=""
 		SHLIB_LD_LIBS=""
-		LDFLAGS=""
 		;;
 	    *)
 		case "$arch" in
@@ -7597,7 +7599,7 @@ fi
 
 		LD_SEARCH_FLAGS=${CC_SEARCH_FLAGS}
 		SHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}.so.${SHLIB_VERSION}'
-		LDFLAGS="-Wl,-export-dynamic"
+		LDFLAGS="$LDFLAGS -Wl,-export-dynamic"
 		;;
 	    esac
 	    case "$arch" in
@@ -7648,7 +7650,7 @@ fi
 fi
 
 	    ;;
-	FreeBSD-*)
+	DragonFly-*|FreeBSD-*)
 	    # This configuration from FreeBSD Ports.
 	    SHLIB_CFLAGS="-fPIC"
 	    SHLIB_LD="${CC} -shared"
@@ -7656,7 +7658,6 @@ fi
 	    SHLIB_SUFFIX=".so"
 	    DL_OBJS="tclLoadDl.o"
 	    DL_LIBS=""
-	    LDFLAGS=""
 	    if test $doRpath = yes; then
 
 		CC_SEARCH_FLAGS='-Wl,-rpath,${LIB_RUNTIME_DIR}'
@@ -8856,7 +8857,7 @@ fi
 	    BSD/OS*) ;;
 	    CYGWIN_*|MINGW32_*) ;;
 	    IRIX*) ;;
-	    NetBSD-*|FreeBSD-*|OpenBSD-*) ;;
+	    NetBSD-*|DragonFly-*|FreeBSD-*|OpenBSD-*) ;;
 	    Darwin-*) ;;
 	    SCO_SV-3.2*) ;;
 	    *) SHLIB_CFLAGS="-fPIC" ;;
@@ -9641,6 +9642,70 @@ echo "${ECHO_T}$tcl_cv_struct_dirent64" >&6
 
 cat >>confdefs.h <<\_ACEOF
 #define HAVE_STRUCT_DIRENT64 1
+_ACEOF
+
+	fi
+
+	echo "$as_me:$LINENO: checking for DIR64" >&5
+echo $ECHO_N "checking for DIR64... $ECHO_C" >&6
+if test "${tcl_cv_DIR64+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+
+	    cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <sys/types.h>
+#include <dirent.h>
+int
+main ()
+{
+struct dirent64 *p; DIR64 d = opendir64(".");
+            p = readdir64(d); rewinddir64(d); closedir64(d);
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  tcl_cv_DIR64=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+tcl_cv_DIR64=no
+fi
+rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $tcl_cv_DIR64" >&5
+echo "${ECHO_T}$tcl_cv_DIR64" >&6
+	if test "x${tcl_cv_DIR64}" = "xyes" ; then
+
+cat >>confdefs.h <<\_ACEOF
+#define HAVE_DIR64 1
 _ACEOF
 
 	fi
@@ -12048,6 +12113,85 @@ _ACEOF
 
 
     else
+
+    # Avoids picking hidden internal symbol from libc
+    echo "$as_me:$LINENO: checking whether gethostbyname_r is declared" >&5
+echo $ECHO_N "checking whether gethostbyname_r is declared... $ECHO_C" >&6
+if test "${ac_cv_have_decl_gethostbyname_r+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <netdb.h>
+
+int
+main ()
+{
+#ifndef gethostbyname_r
+  char *p = (char *) gethostbyname_r;
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_have_decl_gethostbyname_r=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_have_decl_gethostbyname_r=no
+fi
+rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $ac_cv_have_decl_gethostbyname_r" >&5
+echo "${ECHO_T}$ac_cv_have_decl_gethostbyname_r" >&6
+if test $ac_cv_have_decl_gethostbyname_r = yes; then
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_GETHOSTBYNAME_R 1
+_ACEOF
+
+
+    tcl_cv_api_gethostbyname_r=yes
+else
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_GETHOSTBYNAME_R 0
+_ACEOF
+
+tcl_cv_api_gethostbyname_r=no
+fi
+
+
+
+
+    if test "$tcl_cv_api_gethostbyname_r" = yes; then
 	echo "$as_me:$LINENO: checking for gethostbyname_r" >&5
 echo $ECHO_N "checking for gethostbyname_r... $ECHO_C" >&6
 if test "${ac_cv_func_gethostbyname_r+set}" = set; then
@@ -12366,6 +12510,87 @@ _ACEOF
 
 fi
 
+    fi
+
+
+    # Avoids picking hidden internal symbol from libc
+    echo "$as_me:$LINENO: checking whether gethostbyaddr_r is declared" >&5
+echo $ECHO_N "checking whether gethostbyaddr_r is declared... $ECHO_C" >&6
+if test "${ac_cv_have_decl_gethostbyaddr_r+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <netdb.h>
+
+int
+main ()
+{
+#ifndef gethostbyaddr_r
+  char *p = (char *) gethostbyaddr_r;
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_have_decl_gethostbyaddr_r=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_have_decl_gethostbyaddr_r=no
+fi
+rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $ac_cv_have_decl_gethostbyaddr_r" >&5
+echo "${ECHO_T}$ac_cv_have_decl_gethostbyaddr_r" >&6
+if test $ac_cv_have_decl_gethostbyaddr_r = yes; then
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_GETHOSTBYADDR_R 1
+_ACEOF
+
+
+    tcl_cv_api_gethostbyaddr_r=yes
+else
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_DECL_GETHOSTBYADDR_R 0
+_ACEOF
+
+tcl_cv_api_gethostbyaddr_r=no
+fi
+
+
+
+
+    if test "$tcl_cv_api_gethostbyaddr_r" = yes; then
 	echo "$as_me:$LINENO: checking for gethostbyaddr_r" >&5
 echo $ECHO_N "checking for gethostbyaddr_r... $ECHO_C" >&6
 if test "${ac_cv_func_gethostbyaddr_r+set}" = set; then
@@ -12618,6 +12843,8 @@ _ACEOF
     fi
 
 fi
+
+    fi
 
     fi
 fi
@@ -14611,6 +14838,9 @@ _ACEOF
 cat confdefs.h >>conftest.$ac_ext
 cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
+
+#include <stdlib.h>
+#include <string.h>
 int main() {
     extern int strstr();
     exit(strstr("\0test", "test") ? 1 : 0);
@@ -14778,6 +15008,9 @@ _ACEOF
 cat confdefs.h >>conftest.$ac_ext
 cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
+
+#include <stdlib.h>
+#include <string.h>
 int main() {
     extern int strtoul();
     char *term, *string = "0";
@@ -14945,6 +15178,9 @@ _ACEOF
 cat confdefs.h >>conftest.$ac_ext
 cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
+
+#include <stdlib.h>
+#include <string.h>
 int main() {
     extern double strtod();
     char *term, *string = " +69";
@@ -15116,6 +15352,7 @@ cat confdefs.h >>conftest.$ac_ext
 cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
 
+		#include <stdlib.h>
 		extern double strtod();
 		int main() {
 		    char *infString="Inf", *nanString="NaN", *spaceString=" ";
@@ -16503,6 +16740,7 @@ cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
 
 	#include <stdlib.h>
+	#include <string.h>
 	#define OURVAR "havecopy=yes"
 	int main (int argc, char *argv[])
 	{
@@ -18306,6 +18544,9 @@ echo "$as_me: WARNING: can't find uname command" >&2;}
 		if test "`uname -s`" = "AIX" ; then
 		    tcl_cv_sys_version=AIX-`uname -v`.`uname -r`
 		fi
+		if test "`uname -s`" = "NetBSD" -a -f /etc/debian_version ; then
+		    tcl_cv_sys_version=NetBSD-Debian
+		fi
 	    fi
 	fi
 
@@ -18371,7 +18612,7 @@ echo "${ECHO_T}$tcl_ok" >&6
 #------------------------------------------------------------------------
 #	Check whether the timezone data is supplied by the OS or has
 #	to be installed by Tcl. The default is autodetection, but can
-#	be overriden on the configure command line either way.
+#	be overridden on the configure command line either way.
 #------------------------------------------------------------------------
 
 echo "$as_me:$LINENO: checking for timezone data" >&5
@@ -18825,7 +19066,7 @@ eval "TCL_LIB_FILE=libtcl${LIB_SUFFIX}"
 
 eval "TCL_LIB_FILE=${TCL_LIB_FILE}"
 
-TCL_LIBRARY='$(prefix)/lib/tcl$(VERSION)'
+test -z "$TCL_LIBRARY" && TCL_LIBRARY='$(prefix)/lib/tcl$(VERSION)'
 PRIVATE_INCLUDE_DIR='$(includedir)'
 HTML_DIR='$(DISTDIR)/html'
 
@@ -18876,7 +19117,7 @@ echo "${ECHO_T}static library" >&6
 
     TCL_SHLIB_LD_EXTRAS="-compatibility_version ${TCL_VERSION} -current_version ${TCL_VERSION}`echo ${TCL_PATCH_LEVEL} | awk '{match($0, "\\\.[0-9]+"); print substr($0,RSTART,RLENGTH)}'`"
     TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -install_name "${DYLIB_INSTALL_DIR}"/${TCL_LIB_FILE}'
-    echo "$LDFLAGS " | grep -q -- '-prebind ' && TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -seg1addr 0xa000000'
+    echo "$LDFLAGS " | grep -q -- '-prebind ' && TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -seg1addr 0xA000000'
     TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -sectcreate __TEXT __info_plist Tcl-Info.plist'
     EXTRA_TCLSH_LIBS='-sectcreate __TEXT __info_plist Tclsh-Info.plist'
     EXTRA_APP_CC_SWITCHES='-mdynamic-no-pic'
@@ -18948,9 +19189,9 @@ if test "$FRAMEWORK_BUILD" = "1" ; then
     test -z "$TCL_MODULE_PATH"  && \
 	TCL_MODULE_PATH="~/Library/Tcl /Library/Tcl /System/Library/Tcl"
 elif test "$prefix/lib" != "$libdir"; then
-    TCL_PACKAGE_PATH="${libdir} ${prefix}/lib ${TCL_PACKAGE_PATH}"
+    test -z "$TCL_PACKAGE_PATH" && TCL_PACKAGE_PATH="${libdir} ${prefix}/lib ${TCL_PACKAGE_PATH}"
 else
-    TCL_PACKAGE_PATH="${prefix}/lib ${TCL_PACKAGE_PATH}"
+    test -z "$TCL_PACKAGE_PATH" && TCL_PACKAGE_PATH="${prefix}/lib ${TCL_PACKAGE_PATH}"
 fi
 
 #--------------------------------------------------------------------

@@ -14,9 +14,10 @@
 #ifndef _TCLWINPORT
 #define _TCLWINPORT
 
-#ifndef _WIN64
+
+#if !defined(_WIN64) && !defined(__MINGW_USE_VC2005_COMPAT)
 /* See [Bug 3354324]: file mtime sets wrong time */
-#   define _USE_32BIT_TIME_T
+#   define __MINGW_USE_VC2005_COMPAT
 #endif
 
 #define WIN32_LEAN_AND_MEAN
@@ -62,6 +63,9 @@ typedef DWORD_PTR * PDWORD_PTR;
 #include <process.h>
 #include <signal.h>
 #include <string.h>
+#if HAVE_INTTYPES_H
+#   include <inttypes.h>
+#endif
 #include <limits.h>
 
 #ifndef __GNUC__
@@ -379,10 +383,15 @@ typedef DWORD_PTR * PDWORD_PTR;
  * including the *printf family and others. Tell it to shut up.
  * (_MSC_VER is 1200 for VC6, 1300 or 1310 for vc7.net, 1400 for 8.0)
  */
-#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+#if defined(_MSC_VER)
+#   pragma warning(disable:4146)
 #   pragma warning(disable:4244)
-#   pragma warning(disable:4267)
-#   pragma warning(disable:4996)
+#   if _MSC_VER >= 1400
+#	pragma warning(disable:4267)
+#	pragma warning(disable:4311)
+#	pragma warning(disable:4312)
+#	pragma warning(disable:4996)
+#   endif
 #endif
 
 
@@ -473,5 +482,8 @@ typedef DWORD_PTR * PDWORD_PTR;
 #ifndef LABEL_SECURITY_INFORMATION
 #   define LABEL_SECURITY_INFORMATION (0x00000010L)
 #endif
+
+#define Tcl_DirEntry void
+#define TclDIR void
 
 #endif /* _TCLWINPORT */

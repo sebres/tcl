@@ -49,7 +49,7 @@
 #include <string.h>
 #endif
 #if defined(STDC_HEADERS) || defined(__STDC__) || defined(__C99__FUNC__) \
-     || defined(__cplusplus) || defined(_MSC_VER)
+     || defined(__cplusplus) || defined(_MSC_VER) || defined(__ICC)
 #include <stddef.h>
 #else
 typedef int ptrdiff_t;
@@ -1976,9 +1976,10 @@ typedef struct Interp {
  *			other than these should be turned into errors.
  */
 
-#define TCL_ALLOW_EXCEPTIONS	4
-#define TCL_EVAL_FILE		2
-#define TCL_EVAL_CTX		8
+#define TCL_ALLOW_EXCEPTIONS		0x04
+#define TCL_EVAL_FILE			0x02
+#define TCL_EVAL_CTX			0x08
+#define TCL_EVAL_DISCARD_RESULT		0x40
 
 /*
  * Flag bits for Interp structures:
@@ -2611,7 +2612,6 @@ MODULE_SCOPE void	TclInitNotifier(void);
 MODULE_SCOPE void	TclInitObjSubsystem(void);
 MODULE_SCOPE void	TclInitSubsystems(void);
 MODULE_SCOPE int	TclInterpReady(Tcl_Interp *interp);
-MODULE_SCOPE int	TclIsSpaceProc(char byte);
 MODULE_SCOPE int	TclIsBareword(char byte);
 MODULE_SCOPE int	TclJoinThread(Tcl_ThreadId id, int *result);
 MODULE_SCOPE void	TclLimitRemoveAllHandlers(Tcl_Interp *interp);
@@ -2641,7 +2641,9 @@ MODULE_SCOPE int	TclMaxListLength(CONST char *bytes, int numBytes,
 MODULE_SCOPE int	TclMergeReturnOptions(Tcl_Interp *interp, int objc,
 			    Tcl_Obj *const objv[], Tcl_Obj **optionsPtrPtr,
 			    int *codePtr, int *levelPtr);
-MODULE_SCOPE int	TclNokia770Doubles();
+MODULE_SCOPE int	TclNokia770Doubles(void);
+MODULE_SCOPE void	TclNsDecrRefCount(Namespace *nsPtr);
+MODULE_SCOPE int	TclNamespaceDeleted(Namespace *nsPtr);
 MODULE_SCOPE void	TclObjVarErrMsg(Tcl_Interp *interp, Tcl_Obj *part1Ptr,
 			    Tcl_Obj *part2Ptr, const char *operation,
 			    const char *reason, int index);
@@ -2652,8 +2654,6 @@ MODULE_SCOPE int	TclObjUnsetVar2(Tcl_Interp *interp,
 			    Tcl_Obj *part1Ptr, Tcl_Obj *part2Ptr, int flags);
 MODULE_SCOPE int	TclParseBackslash(const char *src,
 			    int numBytes, int *readPtr, char *dst);
-MODULE_SCOPE int	TclParseHex(const char *src, int numBytes,
-			    Tcl_UniChar *resultPtr);
 MODULE_SCOPE int	TclParseNumber(Tcl_Interp *interp, Tcl_Obj *objPtr,
 			    const char *expected, const char *bytes,
 			    int numBytes, const char **endPtrPtr, int flags);
@@ -2751,6 +2751,8 @@ MODULE_SCOPE int	TclSubstTokens(Tcl_Interp *interp, Tcl_Token *tokenPtr,
 			    int *clNextOuter, CONST char *outerScript);
 MODULE_SCOPE void	TclTransferResult(Tcl_Interp *sourceInterp, int result,
 			    Tcl_Interp *targetInterp);
+MODULE_SCOPE int	TclTrim(const char *bytes, int numBytes,
+			    const char *trim, int numTrim, int *trimRight);
 MODULE_SCOPE int	TclTrimLeft(const char *bytes, int numBytes,
 			    const char *trim, int numTrim);
 MODULE_SCOPE int	TclTrimRight(const char *bytes, int numBytes,
@@ -2773,6 +2775,13 @@ MODULE_SCOPE void	TclInitThreadStorage(void);
 MODULE_SCOPE void	TclpFinalizeThreadDataThread(void);
 MODULE_SCOPE void	TclFinalizeThreadStorage(void);
 
+/* TclWideMUInt -- wide integer used for measurement calculations: */
+#if (!defined(_WIN32) || !defined(_MSC_VER) || (_MSC_VER >= 1400))
+#   define TclWideMUInt Tcl_WideUInt
+#else
+/* older MSVS may not allow conversions between unsigned __int64 and double) */
+#   define TclWideMUInt Tcl_WideInt
+#endif
 #ifdef TCL_WIDE_CLICKS
 MODULE_SCOPE Tcl_WideInt TclpGetWideClicks(void);
 MODULE_SCOPE double	TclpWideClicksToNanoseconds(Tcl_WideInt clicks);
@@ -2790,6 +2799,16 @@ MODULE_SCOPE Tcl_WideInt TclpGetMicroseconds(void);
 
 MODULE_SCOPE Tcl_Obj *	TclDisassembleByteCodeObj(Tcl_Obj *objPtr);
 MODULE_SCOPE int TclUtfCasecmp(CONST char *cs, CONST char *ct);
+
+/*
+ * Many parsing tasks need a common definition of whitespace.
+ * Use this routine and macro to achieve that and place
+ * optimization (fragile on changes) in one place.
+ */
+
+MODULE_SCOPE int	TclIsSpaceProc(char byte);
+#	define TclIsSpaceProcM(byte) \
+		(((byte) > 0x20) ? 0 : TclIsSpaceProc(byte))
 
 /*
  *----------------------------------------------------------------
@@ -3287,39 +3306,21 @@ MODULE_SCOPE int	TclDivOpCmd(ClientData clientData,
 MODULE_SCOPE int	TclCompileDivOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclLessOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileLessOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclLeqOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileLeqOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclGreaterOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileGreaterOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclGeqOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileGeqOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclEqOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileEqOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
-MODULE_SCOPE int	TclStreqOpCmd(ClientData clientData,
-			    Tcl_Interp *interp, int objc,
-			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	TclCompileStreqOpCmd(Tcl_Interp *interp,
 			    Tcl_Parse *parsePtr, Command *cmdPtr,
 			    struct CompileEnv *envPtr);
@@ -3700,8 +3701,16 @@ MODULE_SCOPE void	TclDbInitNewObj(Tcl_Obj *objPtr, CONST char *file,
 
 #define TclUtfToUniChar(str, chPtr) \
 	((((unsigned char) *(str)) < 0xC0) ?		\
-	    ((*(chPtr) = (Tcl_UniChar) *(str)), 1)	\
+	    ((*(chPtr) = (unsigned char) *(str)), 1)	\
 	    : Tcl_UtfToUniChar(str, chPtr))
+
+#define TclUtfPrev(src, start) \
+	(((src) < (start)+2) ? (start) : \
+	((unsigned char) *(src - 1)) < 0x80 ? (src)-1 : \
+	Tcl_UtfPrev(src, start))
+
+#define TclUtfNext(src)	\
+	((((unsigned char) *(src)) < 0xC0) ? src + 1 : Tcl_UtfNext(src))
 
 /*
  *----------------------------------------------------------------

@@ -16,10 +16,10 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     namespace import -force ::tcltest::*
 }
 
-# Do all this in a slave interp to avoid garbaging the
+# Do all this in a child interp to avoid garbaging the
 # package list
 set i [interp create]
-tcltest::loadIntoSlaveInterpreter $i {*}$argv
+tcltest::loadIntoChildInterpreter $i {*}$argv
 
 interp eval $i {
 namespace import -force ::tcltest::*
@@ -517,6 +517,16 @@ test pkg-2.52 {Tcl_PkgRequire procedure, picking best stable version} {
     package require t
     set x
 } {1.3}
+
+test pkg-2.53 {Tcl_PkgRequire procedure, picking best stable version} {
+    package forget t
+    foreach i {1.2b1 1.1} {
+	package ifneeded t $i "set x $i; package provide t $i"
+    }
+    set x xxx
+    package require t
+    set x
+} {1.1}
 
 
 

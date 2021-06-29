@@ -113,7 +113,7 @@ typedef struct String {
 #define STRING_UALLOC(numChars)	\
 	((numChars) * sizeof(Tcl_UniChar))
 #define STRING_SIZE(ualloc) \
-    ((unsigned) ((ualloc) \
+    ((unsigned) ((ualloc != 0) \
 	? (sizeof(String) - sizeof(Tcl_UniChar) + (ualloc)) \
 	: sizeof(String)))
 #define stringCheckLimits(numChars) \
@@ -1119,17 +1119,15 @@ Tcl_AppendLimitedToObj(
 {
     String *stringPtr;
     int toCopy = 0;
-
-    if (Tcl_IsShared(objPtr)) {
-	Tcl_Panic("%s called with shared object", "Tcl_AppendLimitedToObj");
-    }
-
-    SetStringFromAny(NULL, objPtr);
+    int eLen = 0;
 
     if (length < 0) {
 	length = (bytes ? strlen(bytes) : 0);
     }
     if (length == 0) {
+	return;
+    }
+    if (limit <= 0) {
 	return;
     }
 
@@ -1139,8 +1137,12 @@ Tcl_AppendLimitedToObj(
 	if (ellipsis == NULL) {
 	    ellipsis = "...";
 	}
-	toCopy = (bytes == NULL) ? limit
-		: Tcl_UtfPrev(bytes+limit+1-strlen(ellipsis), bytes) - bytes;
+	eLen = strlen(ellipsis);
+	while (eLen > limit) {
+	    eLen = TclUtfPrev(ellipsis+eLen, ellipsis) - ellipsis;
+	}
+
+	toCopy = TclUtfPrev(bytes+limit+1-eLen, bytes) - bytes;
     }
 
     /*
@@ -1149,6 +1151,11 @@ Tcl_AppendLimitedToObj(
      * objPtr's string rep.
      */
 
+    if (Tcl_IsShared(objPtr)) {
+	Tcl_Panic("%s called with shared object", "Tcl_AppendLimitedToObj");
+    }
+
+    SetStringFromAny(NULL, objPtr);
     stringPtr = GET_STRING(objPtr);
     if (stringPtr->hasUnicode != 0) {
 	AppendUtfToUnicodeRep(objPtr, bytes, toCopy);
@@ -1162,9 +1169,9 @@ Tcl_AppendLimitedToObj(
 
     stringPtr = GET_STRING(objPtr);
     if (stringPtr->hasUnicode != 0) {
-	AppendUtfToUnicodeRep(objPtr, ellipsis, -1);
+	AppendUtfToUnicodeRep(objPtr, ellipsis, eLen);
     } else {
-	AppendUtfToUtfRep(objPtr, ellipsis, -1);
+	AppendUtfToUtfRep(objPtr, ellipsis, eLen);
     }
 }
 
@@ -1938,6 +1945,10 @@ Tcl_AppendFormatToObj(
 	width = 0;
 	if (isdigit(UCHAR(ch))) {
 	    width = strtoul(format, &end, 10);
+	    if (width < 0) {
+		msg = overflow;
+		goto errorMsg;
+	    }
 	    format = end;
 	    step = Tcl_UtfToUniChar(format, &ch);
 	} else if (ch == '*') {
@@ -2089,7 +2100,7 @@ Tcl_AppendFormatToObj(
 		    if (Tcl_GetBignumFromObj(interp,segment,&big) != TCL_OK) {
 			goto error;
 		    }
-		    mp_mod_2d(&big, (int) CHAR_BIT*sizeof(Tcl_WideInt), &big);
+		    mp_mod_2d(&big, CHAR_BIT*sizeof(Tcl_WideInt), &big);
 		    objPtr = Tcl_NewBignumObj(&big);
 		    Tcl_IncrRefCount(objPtr);
 		    Tcl_GetWideIntFromObj(NULL, objPtr, &w);
@@ -2103,7 +2114,7 @@ Tcl_AppendFormatToObj(
 		    if (Tcl_GetBignumFromObj(interp,segment,&big) != TCL_OK) {
 			goto error;
 		    }
-		    mp_mod_2d(&big, (int) CHAR_BIT * sizeof(long), &big);
+		    mp_mod_2d(&big, CHAR_BIT * sizeof(long), &big);
 		    objPtr = Tcl_NewBignumObj(&big);
 		    Tcl_IncrRefCount(objPtr);
 		    TclGetLongFromObj(NULL, objPtr, &l);
@@ -2247,11 +2258,11 @@ Tcl_AppendFormatToObj(
 			uw /= base;
 		    }
 		} else if (useBig && big.used) {
-		    int leftover = (big.used * DIGIT_BIT) % numBits;
-		    mp_digit mask = (~(mp_digit)0) << (DIGIT_BIT-leftover);
+		    int leftover = (big.used * MP_DIGIT_BIT) % numBits;
+		    mp_digit mask = (~(mp_digit)0) << (MP_DIGIT_BIT-leftover);
 
 		    numDigits = 1 +
-			    (((Tcl_WideInt)big.used * DIGIT_BIT) / numBits);
+			    (((Tcl_WideInt)big.used * MP_DIGIT_BIT) / numBits);
 		    while ((mask & big.dp[big.used-1]) == 0) {
 			numDigits--;
 			mask >>= numBits;
@@ -2286,9 +2297,9 @@ Tcl_AppendFormatToObj(
 
 		    if (useBig && big.used) {
 			if (index < big.used && (size_t) shift <
-				CHAR_BIT*sizeof(Tcl_WideUInt) - DIGIT_BIT) {
+				CHAR_BIT*sizeof(Tcl_WideUInt) - MP_DIGIT_BIT) {
 			    bits |= (((Tcl_WideUInt)big.dp[index++]) <<shift);
-			    shift += DIGIT_BIT;
+			    shift += MP_DIGIT_BIT;
 			}
 			shift -= numBits;
 		    }
@@ -2574,7 +2585,7 @@ AppendPrintfToObjVA(
 		 * multi-byte characters.
 		 */
 
-		q = Tcl_UtfPrev(end, bytes);
+		q = TclUtfPrev(end, bytes);
 		if (!Tcl_UtfCharComplete(q, (int)(end - q))) {
 		    end = q;
 		}

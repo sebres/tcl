@@ -203,7 +203,9 @@ static const CmdInfo builtInCmds[] = {
     {"source",		Tcl_SourceObjCmd,	NULL,			0},
     {"tell",		Tcl_TellObjCmd,		NULL,			1},
     {"time",		Tcl_TimeObjCmd,		NULL,			1},
+#ifdef TCL_TIMERATE
     {"timerate",	Tcl_TimeRateObjCmd,	NULL,			1},
+#endif
     {"unload",		Tcl_UnloadObjCmd,	NULL,			0},
     {"update",		Tcl_UpdateObjCmd,	NULL,			1},
     {"vwait",		Tcl_VwaitObjCmd,	NULL,			1},
@@ -387,7 +389,7 @@ Tcl_CreateInterp(void)
     const BuiltinFuncDef *builtinFuncPtr;
     const OpCmdInfo *opcmdInfoPtr;
     const CmdInfo *cmdInfoPtr;
-    Tcl_Namespace *mathfuncNSPtr, *mathopNSPtr;
+    Tcl_Namespace *nsPtr;
     union {
 	char c[sizeof(short)];
 	short s;
@@ -411,11 +413,13 @@ Tcl_CreateInterp(void)
 	Tcl_Panic("Tcl_CallFrame must not be smaller than CallFrame");
     }
 
-#if defined(_WIN32) && !defined(_WIN64)
-    if (sizeof(time_t) != 4) {
-	/*NOTREACHED*/
-	Tcl_Panic("<time.h> is not compatible with MSVC");
-    }
+#if defined(_WIN32) && !defined(_WIN64) && !defined(_USE_64BIT_TIME_T)
+    /* If Tcl is compiled on Win32 using -D_USE_64BIT_TIME_T
+     * the result is a binary incompatible with the 'standard' build of
+     * Tcl: All extensions using Tcl_StatBuf need to be recompiled in
+     * the same way. Therefore, this is not officially supported.
+     * In stead, it is recommended to use Win64 or Tcl 9.0 (not released yet)
+     */
     if ((TclOffset(Tcl_StatBuf,st_atime) != 32)
 	    || (TclOffset(Tcl_StatBuf,st_ctime) != 40)) {
 	/*NOTREACHED*/
@@ -729,6 +733,17 @@ Tcl_CreateInterp(void)
     Tcl_CreateObjCommand(interp, "::tcl::unsupported::disassemble",
 	    Tcl_DisassembleObjCmd, NULL, NULL);
 
+    /* Create an unsupported command for timerate */
+    Tcl_CreateObjCommand(interp, "::tcl::unsupported::timerate",
+	    Tcl_TimeRateObjCmd, NULL, NULL);
+
+    /* Export unsupported commands */
+    nsPtr = Tcl_FindNamespace(interp, "::tcl::unsupported", NULL, 0);
+    if (nsPtr) {
+	Tcl_Export(interp, nsPtr, "*", 1);
+    }
+
+
 #ifdef USE_DTRACE
     /*
      * Register the tcl::dtrace command.
@@ -741,8 +756,8 @@ Tcl_CreateInterp(void)
      * Register the builtin math functions.
      */
 
-    mathfuncNSPtr = Tcl_CreateNamespace(interp, "::tcl::mathfunc", NULL,NULL);
-    if (mathfuncNSPtr == NULL) {
+    nsPtr = Tcl_CreateNamespace(interp, "::tcl::mathfunc", NULL,NULL);
+    if (nsPtr == NULL) {
 	Tcl_Panic("Can't create math function namespace");
     }
     strcpy(mathFuncName, "::tcl::mathfunc::");
@@ -752,19 +767,19 @@ Tcl_CreateInterp(void)
 	strcpy(mathFuncName+MATH_FUNC_PREFIX_LEN, builtinFuncPtr->name);
 	Tcl_CreateObjCommand(interp, mathFuncName,
 		builtinFuncPtr->objCmdProc, builtinFuncPtr->clientData, NULL);
-	Tcl_Export(interp, mathfuncNSPtr, builtinFuncPtr->name, 0);
+	Tcl_Export(interp, nsPtr, builtinFuncPtr->name, 0);
     }
 
     /*
      * Register the mathematical "operator" commands. [TIP #174]
      */
 
-    mathopNSPtr = Tcl_CreateNamespace(interp, "::tcl::mathop", NULL, NULL);
+    nsPtr = Tcl_CreateNamespace(interp, "::tcl::mathop", NULL, NULL);
 #define MATH_OP_PREFIX_LEN 15 /* == strlen("::tcl::mathop::") */
-    if (mathopNSPtr == NULL) {
+    if (nsPtr == NULL) {
 	Tcl_Panic("can't create math operator namespace");
     }
-    (void) Tcl_Export(interp, mathopNSPtr, "*", 1);
+    (void) Tcl_Export(interp, nsPtr, "*", 1);
     strcpy(mathFuncName, "::tcl::mathop::");
     for (opcmdInfoPtr=mathOpCmds ; opcmdInfoPtr->name!=NULL ; opcmdInfoPtr++){
 	TclOpCmdClientData *occdPtr = (TclOpCmdClientData *)
@@ -1859,11 +1874,11 @@ Tcl_CreateCommand(
 {
     Interp *iPtr = (Interp *) interp;
     ImportRef *oldRefPtr = NULL;
-    Namespace *nsPtr, *dummy1, *dummy2;
-    Command *cmdPtr, *refCmdPtr;
+    Namespace *nsPtr;
+    Command *cmdPtr;
     Tcl_HashEntry *hPtr;
     const char *tail;
-    int isNew;
+    int isNew = 0, deleted = 0;
     ImportedCmdData *dataPtr;
 
     if (iPtr->flags & DELETED) {
@@ -1876,32 +1891,52 @@ Tcl_CreateCommand(
     }
 
     /*
-     * Determine where the command should reside. If its name contains
-     * namespace qualifiers, we put it in the specified namespace; otherwise,
-     * we always put it in the global namespace.
+     * If the command name we seek to create already exists, we need to
+     * delete that first.  That can be tricky in the presence of traces.
+     * Loop until we no longer find an existing command in the way, or
+     * until we've deleted one command and that didn't finish the job.
      */
 
-    if (strstr(cmdName, "::") != NULL) {
-	TclGetNamespaceForQualName(interp, cmdName, NULL,
-		TCL_CREATE_NS_IF_UNKNOWN, &nsPtr, &dummy1, &dummy2, &tail);
-	if ((nsPtr == NULL) || (tail == NULL)) {
-	    return (Tcl_Command) NULL;
-	}
-    } else {
-	nsPtr = iPtr->globalNsPtr;
-	tail = cmdName;
-    }
+    while (1) {
+        /*
+         * Determine where the command should reside. If its name contains
+         * namespace qualifiers, we put it in the specified namespace;
+	 * otherwise, we always put it in the global namespace.
+         */
 
-    hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
-    if (!isNew) {
+        if (strstr(cmdName, "::") != NULL) {
+	    Namespace *dummy1, *dummy2;
+
+	    TclGetNamespaceForQualName(interp, cmdName, NULL,
+		    TCL_CREATE_NS_IF_UNKNOWN, &nsPtr, &dummy1, &dummy2, &tail);
+	    if ((nsPtr == NULL) || (tail == NULL)) {
+	        return (Tcl_Command) NULL;
+	    }
+        } else {
+	    nsPtr = iPtr->globalNsPtr;
+	    tail = cmdName;
+        }
+
+        hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
+
+        if (isNew || deleted) {
+	    /*
+	     * isNew - No conflict with existing command.
+	     * deleted - We've already deleted a conflicting command
+	     */
+	    break;
+        }
+
+	/* An existing command conflicts. Try to delete it.. */
+	cmdPtr = Tcl_GetHashValue(hPtr);
+
 	/*
-	 * Command already exists. Delete the old one. Be careful to preserve
+	 * Be careful to preserve
 	 * any existing import links so we can restore them down below. That
 	 * way, you can redefine a command and its import status will remain
 	 * intact.
 	 */
 
-	cmdPtr = Tcl_GetHashValue(hPtr);
 	cmdPtr->refCount++;
 	if (cmdPtr->importRefPtr) {
 	    cmdPtr->flags |= CMD_REDEF_IN_PROGRESS;
@@ -1914,18 +1949,21 @@ Tcl_CreateCommand(
 	    cmdPtr->importRefPtr = NULL;
 	}
 	TclCleanupCommandMacro(cmdPtr);
+	deleted = 1;
+    }
 
-	hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
-	if (!isNew) {
-	    /*
-	     * If the deletion callback recreated the command, just throw away
-	     * the new command (if we try to delete it again, we could get
-	     * stuck in an infinite loop).
-	     */
+    if (!isNew) {
+	/*
+	 * If the deletion callback recreated the command, just throw away
+	 * the new command (if we try to delete it again, we could get
+	 * stuck in an infinite loop).
+	 */
 
-	     ckfree((char *) Tcl_GetHashValue(hPtr));
-	}
-    } else {
+	ckfree((char *) Tcl_GetHashValue(hPtr));
+    }
+
+    if (!deleted) {
+
 	/*
 	 * The list of command exported from the namespace might have changed.
 	 * However, we do not need to recompute this just yet; next time we
@@ -1960,7 +1998,7 @@ Tcl_CreateCommand(
     if (oldRefPtr != NULL) {
 	cmdPtr->importRefPtr = oldRefPtr;
 	while (oldRefPtr != NULL) {
-	    refCmdPtr = oldRefPtr->importedCmdPtr;
+	    Command *refCmdPtr = oldRefPtr->importedCmdPtr;
 	    dataPtr = refCmdPtr->objClientData;
 	    dataPtr->realCmdPtr = cmdPtr;
 	    oldRefPtr = oldRefPtr->nextPtr;
@@ -2021,11 +2059,11 @@ Tcl_CreateObjCommand(
 {
     Interp *iPtr = (Interp *) interp;
     ImportRef *oldRefPtr = NULL;
-    Namespace *nsPtr, *dummy1, *dummy2;
-    Command *cmdPtr, *refCmdPtr;
+    Namespace *nsPtr;
+    Command *cmdPtr;
     Tcl_HashEntry *hPtr;
     const char *tail;
-    int isNew;
+    int isNew = 0, deleted = 0;
     ImportedCmdData *dataPtr;
 
     if (iPtr->flags & DELETED) {
@@ -2038,31 +2076,47 @@ Tcl_CreateObjCommand(
     }
 
     /*
-     * Determine where the command should reside. If its name contains
-     * namespace qualifiers, we put it in the specified namespace; otherwise,
-     * we always put it in the global namespace.
+     * If the command name we seek to create already exists, we need to
+     * delete that first.  That can be tricky in the presence of traces.
+     * Loop until we no longer find an existing command in the way, or
+     * until we've deleted one command and that didn't finish the job.
      */
 
-    if (strstr(cmdName, "::") != NULL) {
-	TclGetNamespaceForQualName(interp, cmdName, NULL,
-		TCL_CREATE_NS_IF_UNKNOWN, &nsPtr, &dummy1, &dummy2, &tail);
-	if ((nsPtr == NULL) || (tail == NULL)) {
-	    return (Tcl_Command) NULL;
-	}
-    } else {
-	nsPtr = iPtr->globalNsPtr;
-	tail = cmdName;
-    }
+    while (1) {
+        /*
+         * Determine where the command should reside. If its name contains
+         * namespace qualifiers, we put it in the specified namespace;
+	 * otherwise, we always put it in the global namespace.
+         */
 
-    hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
-    TclInvalidateNsPath(nsPtr);
-    if (!isNew) {
+        if (strstr(cmdName, "::") != NULL) {
+	    Namespace *dummy1, *dummy2;
+
+	    TclGetNamespaceForQualName(interp, cmdName, NULL,
+		TCL_CREATE_NS_IF_UNKNOWN, &nsPtr, &dummy1, &dummy2, &tail);
+	    if ((nsPtr == NULL) || (tail == NULL)) {
+	        return (Tcl_Command) NULL;
+	    }
+        } else {
+	    nsPtr = iPtr->globalNsPtr;
+	    tail = cmdName;
+        }
+
+        hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
+
+        if (isNew || deleted) {
+	    /*
+	     * isNew - No conflict with existing command.
+	     * deleted - We've already deleted a conflicting command
+	     */
+	    break;
+        }
+
+	/* An existing command conflicts. Try to delete it.. */
 	cmdPtr = Tcl_GetHashValue(hPtr);
 
-	/* Command already exists. */
-
 	/*
-	 * [***] This is wrong.  See Tcl Bug a16752c252.  
+	 * [***] This is wrong.  See Tcl Bug a16752c252.
 	 * However, this buggy behavior is kept under particular
 	 * circumstances to accommodate deployed binaries of the
 	 * "tclcompiler" program. http://sourceforge.net/projects/tclpro/
@@ -2097,18 +2151,20 @@ Tcl_CreateObjCommand(
 	    cmdPtr->importRefPtr = NULL;
 	}
 	TclCleanupCommandMacro(cmdPtr);
+	deleted = 1;
+    }
 
-	hPtr = Tcl_CreateHashEntry(&nsPtr->cmdTable, tail, &isNew);
-	if (!isNew) {
-	    /*
-	     * If the deletion callback recreated the command, just throw away
-	     * the new command (if we try to delete it again, we could get
-	     * stuck in an infinite loop).
-	     */
+    if (!isNew) {
+	/*
+	 * If the deletion callback recreated the command, just throw away
+	 * the new command (if we try to delete it again, we could get
+	 * stuck in an infinite loop).
+	 */
 
-	     ckfree(Tcl_GetHashValue(hPtr));
-	}
-    } else {
+	ckfree(Tcl_GetHashValue(hPtr));
+    }
+
+    if (!deleted) {
 	/*
 	 * The list of command exported from the namespace might have changed.
 	 * However, we do not need to recompute this just yet; next time we
@@ -2116,6 +2172,7 @@ Tcl_CreateObjCommand(
 	 */
 
 	TclInvalidateNsCmdLookup(nsPtr);
+	TclInvalidateNsPath(nsPtr);
     }
     cmdPtr = (Command *) ckalloc(sizeof(Command));
     Tcl_SetHashValue(hPtr, cmdPtr);
@@ -2142,7 +2199,7 @@ Tcl_CreateObjCommand(
     if (oldRefPtr != NULL) {
 	cmdPtr->importRefPtr = oldRefPtr;
 	while (oldRefPtr != NULL) {
-	    refCmdPtr = oldRefPtr->importedCmdPtr;
+	    Command *refCmdPtr = oldRefPtr->importedCmdPtr;
 	    dataPtr = refCmdPtr->objClientData;
 	    dataPtr->realCmdPtr = cmdPtr;
 	    oldRefPtr = oldRefPtr->nextPtr;
@@ -5140,7 +5197,7 @@ TclEvalObjEx(
 		TclStackAlloc(interp, sizeof(CmdFrame));
 
 	eoFramePtr->type = TCL_LOCATION_EVAL_LIST;
-	eoFramePtr->level = (iPtr->cmdFramePtr == NULL?  1 
+	eoFramePtr->level = (iPtr->cmdFramePtr == NULL?  1
 		: iPtr->cmdFramePtr->level + 1);
 	eoFramePtr->framePtr = iPtr->framePtr;
 	eoFramePtr->nextPtr = iPtr->cmdFramePtr;
@@ -6298,7 +6355,7 @@ ExprIsqrtFunc(
 	if (Tcl_GetBignumFromObj(interp, objv[1], &big) != TCL_OK) {
 	    return TCL_ERROR;
 	}
-	if (SIGN(&big) == MP_NEG) {
+	if (mp_isneg(&big)) {
 	    mp_clear(&big);
 	    goto negarg;
 	}
@@ -6569,8 +6626,7 @@ ExprAbsFunc(
 #endif
 
     if (type == TCL_NUMBER_BIG) {
-	/* TODO: const correctness ? */
-	if (mp_cmp_d((mp_int *) ptr, 0) == MP_LT) {
+	if (mp_cmp_d(ptr, 0) == MP_LT) {
 	    Tcl_GetBignumFromObj(NULL, objv[1], &big);
 	tooLarge:
 	    mp_neg(&big, &big);
@@ -6720,7 +6776,7 @@ ExprIntFunc(
 	mp_int big;
 
 	Tcl_GetBignumFromObj(NULL, objPtr, &big);
-	mp_mod_2d(&big, (int) CHAR_BIT * sizeof(long), &big);
+	mp_mod_2d(&big, CHAR_BIT * sizeof(long), &big);
 	objPtr = Tcl_NewBignumObj(&big);
 	Tcl_IncrRefCount(objPtr);
 	TclGetLongFromObj(NULL, objPtr, &iResult);
@@ -6752,7 +6808,7 @@ ExprWideFunc(
 	mp_int big;
 
 	Tcl_GetBignumFromObj(NULL, objPtr, &big);
-	mp_mod_2d(&big, (int) CHAR_BIT * sizeof(Tcl_WideInt), &big);
+	mp_mod_2d(&big, CHAR_BIT * sizeof(Tcl_WideInt), &big);
 	objPtr = Tcl_NewBignumObj(&big);
 	Tcl_IncrRefCount(objPtr);
 	Tcl_GetWideIntFromObj(NULL, objPtr, &wResult);
@@ -6959,7 +7015,7 @@ ExprSrandFunc(
 	    return TCL_ERROR;
 	}
 
-	mp_mod_2d(&big, (int) CHAR_BIT * sizeof(long), &big);
+	mp_mod_2d(&big, CHAR_BIT * sizeof(long), &big);
 	objPtr = Tcl_NewBignumObj(&big);
 	Tcl_IncrRefCount(objPtr);
 	TclGetLongFromObj(NULL, objPtr, &i);

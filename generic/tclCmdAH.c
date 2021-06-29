@@ -145,7 +145,7 @@ Tcl_CaseObjCmd(
 
 	pat = TclGetString(caseObjv[i]);
 	for (p = pat; *p != '\0'; p++) {
-	    if (TclIsSpaceProc(*p) || (*p == '\\')) {
+	    if (TclIsSpaceProcM(*p) || (*p == '\\')) {
 		break;
 	    }
 	}
@@ -870,15 +870,11 @@ Tcl_FileObjCmd(
 	    return TCL_ERROR;
 	}
 	if (objc == 4) {
-	    /*
-	     * Need separate variable for reading longs from an object on
-	     * 64-bit platforms. [Bug #698146]
-	     */
+	    Tcl_WideInt newTime;
 
-	    long newTime;
-
-	    if (TclGetLongFromObj(interp, objv[3], &newTime) != TCL_OK) {
-		return TCL_ERROR;
+	    
+	    if (Tcl_GetWideIntFromObj(interp, objv[3], &newTime) != TCL_OK) {
+		    return TCL_ERROR;
 	    }
 
 	    if (index == FCMD_ATIME) {
@@ -908,7 +904,7 @@ Tcl_FileObjCmd(
 	    }
 	}
 
-	Tcl_SetObjResult(interp, Tcl_NewLongObj((long)
+	Tcl_SetObjResult(interp, Tcl_NewWideIntObj(
 		(index == FCMD_ATIME ? buf.st_atime : buf.st_mtime)));
 	return TCL_OK;
     case FCMD_ATTRIBUTES:
@@ -1527,9 +1523,9 @@ StoreStatData(
 #ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
     STORE_ARY("blksize", Tcl_NewLongObj((long)statPtr->st_blksize));
 #endif
-    STORE_ARY("atime",	Tcl_NewLongObj((long)statPtr->st_atime));
-    STORE_ARY("mtime",	Tcl_NewLongObj((long)statPtr->st_mtime));
-    STORE_ARY("ctime",	Tcl_NewLongObj((long)statPtr->st_ctime));
+    STORE_ARY("atime",	Tcl_NewWideIntObj(statPtr->st_atime));
+    STORE_ARY("mtime",	Tcl_NewWideIntObj(statPtr->st_mtime));
+    STORE_ARY("ctime",	Tcl_NewWideIntObj(statPtr->st_ctime));
     mode = (unsigned short) statPtr->st_mode;
     STORE_ARY("mode",	Tcl_NewIntObj(mode));
     STORE_ARY("type",	Tcl_NewStringObj(GetTypeFromMode(mode), -1));

@@ -11,7 +11,9 @@
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
 package require Tcl 8.5
-package require tcltest 2.2
+package require tcltest 2.5
 namespace import tcltest::*
 configure {*}$argv -testdir [file dir [info script]]
-runAllTests
+set ErrorOnFailures [info exists env(ERROR_ON_FAILURES)]
+unset -nocomplain env(ERROR_ON_FAILURES)
+if {[runAllTests] && $ErrorOnFailures} {exit 1}

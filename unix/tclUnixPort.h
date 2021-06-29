@@ -58,11 +58,22 @@
  */
 
 #ifdef HAVE_STRUCT_DIRENT64
-typedef struct dirent64	Tcl_DirEntry;
+typedef struct dirent64		Tcl_DirEntry;
 #   define TclOSreaddir		readdir64
 #else
-typedef struct dirent	Tcl_DirEntry;
+typedef struct dirent		Tcl_DirEntry;
 #   define TclOSreaddir		readdir
+#endif
+#ifdef HAVE_DIR64
+typedef DIR64			TclDIR;
+#   define TclOSopendir		opendir64
+#   define TclOSrewinddir	rewinddir64
+#   define TclOSclosedir	closedir64
+#else
+typedef DIR			TclDIR;
+#   define TclOSopendir		opendir
+#   define TclOSrewinddir	rewinddir
+#   define TclOSclosedir	closedir
 #endif
 
 #ifdef HAVE_TYPE_OFF64_T
@@ -216,27 +227,27 @@ extern int TclUnixSetBlockingMode(int fd, int mode);
  */
 
 #ifndef WIFEXITED
-#   define WIFEXITED(stat)  (((*((int *) &(stat))) & 0xff) == 0)
+#   define WIFEXITED(stat)  (((*((int *) &(stat))) & 0xFF) == 0)
 #endif
 
 #ifndef WEXITSTATUS
-#   define WEXITSTATUS(stat) (((*((int *) &(stat))) >> 8) & 0xff)
+#   define WEXITSTATUS(stat) (((*((int *) &(stat))) >> 8) & 0xFF)
 #endif
 
 #ifndef WIFSIGNALED
-#   define WIFSIGNALED(stat) (((*((int *) &(stat)))) && ((*((int *) &(stat))) == ((*((int *) &(stat))) & 0x00ff)))
+#   define WIFSIGNALED(stat) (((*((int *) &(stat)))) && ((*((int *) &(stat))) == ((*((int *) &(stat))) & 0xFF)))
 #endif
 
 #ifndef WTERMSIG
-#   define WTERMSIG(stat)    ((*((int *) &(stat))) & 0x7f)
+#   define WTERMSIG(stat)    ((*((int *) &(stat))) & 0x7F)
 #endif
 
 #ifndef WIFSTOPPED
-#   define WIFSTOPPED(stat)  (((*((int *) &(stat))) & 0xff) == 0177)
+#   define WIFSTOPPED(stat)  (((*((int *) &(stat))) & 0xFF) == 0177)
 #endif
 
 #ifndef WSTOPSIG
-#   define WSTOPSIG(stat)    (((*((int *) &(stat))) >> 8) & 0xff)
+#   define WSTOPSIG(stat)    (((*((int *) &(stat))) >> 8) & 0xFF)
 #endif
 
 /*
@@ -579,8 +590,8 @@ extern char **environ;
 
 /*
  *---------------------------------------------------------------------------
- * The following macros and declarations represent the interface between 
- * generic and unix-specific parts of Tcl.  Some of the macros may override 
+ * The following macros and declarations represent the interface between
+ * generic and unix-specific parts of Tcl.  Some of the macros may override
  * functions declared in tclInt.h.
  *---------------------------------------------------------------------------
  */
@@ -597,7 +608,7 @@ typedef int socklen_t;
 #endif
 
 /*
- * The following macros have trivial definitions, allowing generic code to 
+ * The following macros have trivial definitions, allowing generic code to
  * address platform-specific issues.
  */
 

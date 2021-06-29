@@ -324,7 +324,10 @@ CreateHashEntry(
 		continue;
 	    }
 #endif
-	    if (compareKeysProc((VOID *) key, hPtr)) {
+	    /* if keys pointers or values are equal */
+	    if ((key == hPtr->key.oneWordValue)
+		|| compareKeysProc((VOID *) key, hPtr)
+	    ) {
 		if (newPtr) {
 		    *newPtr = 0;
 		}
@@ -850,6 +853,7 @@ AllocStringEntry(
 	allocsize = sizeof(hPtr->key);
     }
     hPtr = (Tcl_HashEntry *) ckalloc(sizeof(Tcl_HashEntry) + allocsize - sizeof(hPtr->key));
+    memset(hPtr, 0, sizeof(Tcl_HashEntry) + allocsize - sizeof(hPtr->key));
     memcpy(hPtr->key.string, string, size);
     hPtr->clientData = 0;
     return hPtr;
@@ -1013,11 +1017,17 @@ static void
 RebuildTable(
     register Tcl_HashTable *tablePtr)	/* Table to enlarge. */
 {
-    int oldSize, count, index;
-    Tcl_HashEntry **oldBuckets;
+    int count, index, oldSize = tablePtr->numBuckets;
+    Tcl_HashEntry **oldBuckets = tablePtr->buckets;
     register Tcl_HashEntry **oldChainPtr, **newChainPtr;
     register Tcl_HashEntry *hPtr;
     const Tcl_HashKeyType *typePtr;
+
+    /* Avoid outgrowing capability of the memory allocators */
+    if (oldSize > (int)(UINT_MAX / (4 * sizeof(Tcl_HashEntry *)))) {
+	tablePtr->rebuildSize = INT_MAX;
+	return;
+    }
 
     if (tablePtr->keyType == TCL_STRING_KEYS) {
 	typePtr = &tclStringHashKeyType;
@@ -1029,9 +1039,6 @@ RebuildTable(
     } else {
 	typePtr = &tclArrayHashKeyType;
     }
-
-    oldSize = tablePtr->numBuckets;
-    oldBuckets = tablePtr->buckets;
 
     /*
      * Allocate and initialize the new bucket array, and set up hashing

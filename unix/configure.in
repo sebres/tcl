@@ -459,6 +459,7 @@ fi
 AC_CACHE_CHECK([for a putenv() that copies the buffer], tcl_cv_putenv_copy, [
     AC_TRY_RUN([
 	#include <stdlib.h>
+	#include <string.h>
 	#define OURVAR "havecopy=yes"
 	int main (int argc, char *argv[])
 	{
@@ -616,7 +617,7 @@ AC_MSG_RESULT([$tcl_ok])
 #------------------------------------------------------------------------
 #	Check whether the timezone data is supplied by the OS or has
 #	to be installed by Tcl. The default is autodetection, but can
-#	be overriden on the configure command line either way.
+#	be overridden on the configure command line either way.
 #------------------------------------------------------------------------
 
 AC_MSG_CHECKING([for timezone data])
@@ -760,7 +761,7 @@ eval "TCL_LIB_FILE=libtcl${LIB_SUFFIX}"
 
 eval "TCL_LIB_FILE=${TCL_LIB_FILE}"
 
-TCL_LIBRARY='$(prefix)/lib/tcl$(VERSION)'
+test -z "$TCL_LIBRARY" && TCL_LIBRARY='$(prefix)/lib/tcl$(VERSION)'
 PRIVATE_INCLUDE_DIR='$(includedir)'
 HTML_DIR='$(DISTDIR)/html'
 
@@ -773,7 +774,7 @@ if test "`uname -s`" = "Darwin" ; then
     SC_ENABLE_FRAMEWORK
     TCL_SHLIB_LD_EXTRAS="-compatibility_version ${TCL_VERSION} -current_version ${TCL_VERSION}`echo ${TCL_PATCH_LEVEL} | awk ['{match($0, "\\\.[0-9]+"); print substr($0,RSTART,RLENGTH)}']`"
     TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -install_name "${DYLIB_INSTALL_DIR}"/${TCL_LIB_FILE}'
-    echo "$LDFLAGS " | grep -q -- '-prebind ' && TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -seg1addr 0xa000000'
+    echo "$LDFLAGS " | grep -q -- '-prebind ' && TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -seg1addr 0xA000000'
     TCL_SHLIB_LD_EXTRAS="${TCL_SHLIB_LD_EXTRAS}"' -sectcreate __TEXT __info_plist Tcl-Info.plist'
     EXTRA_TCLSH_LIBS='-sectcreate __TEXT __info_plist Tclsh-Info.plist'
     EXTRA_APP_CC_SWITCHES='-mdynamic-no-pic'
@@ -845,9 +846,9 @@ if test "$FRAMEWORK_BUILD" = "1" ; then
     test -z "$TCL_MODULE_PATH"  && \
 	TCL_MODULE_PATH="~/Library/Tcl /Library/Tcl /System/Library/Tcl"
 elif test "$prefix/lib" != "$libdir"; then
-    TCL_PACKAGE_PATH="${libdir} ${prefix}/lib ${TCL_PACKAGE_PATH}"
+    test -z "$TCL_PACKAGE_PATH" && TCL_PACKAGE_PATH="${libdir} ${prefix}/lib ${TCL_PACKAGE_PATH}"
 else
-    TCL_PACKAGE_PATH="${prefix}/lib ${TCL_PACKAGE_PATH}"
+    test -z "$TCL_PACKAGE_PATH" && TCL_PACKAGE_PATH="${prefix}/lib ${TCL_PACKAGE_PATH}"
 fi
 
 #--------------------------------------------------------------------

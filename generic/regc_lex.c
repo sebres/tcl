@@ -63,7 +63,7 @@
 
 /*
  - lexstart - set up lexical stuff, scan leading options
- ^ static VOID lexstart(struct vars *);
+ ^ static void lexstart(struct vars *);
  */
 static void
 lexstart(
@@ -89,7 +89,7 @@ lexstart(
 
 /*
  - prefixes - implement various special prefixes
- ^ static VOID prefixes(struct vars *);
+ ^ static void prefixes(struct vars *);
  */
 static void
 prefixes(
@@ -207,7 +207,7 @@ prefixes(
  - lexnest - "call a subroutine", interpolating string at the lexical level
  * Note, this is not a very general facility.  There are a number of
  * implicit assumptions about what sorts of strings can be subroutines.
- ^ static VOID lexnest(struct vars *, const chr *, const chr *);
+ ^ static void lexnest(struct vars *, const chr *, const chr *);
  */
 static void
 lexnest(
@@ -259,15 +259,15 @@ static const chr brbacks[] = {	/* \s within brackets */
 
 #define PUNCT_CONN \
 	CHR('_'), \
-	0x203f /* UNDERTIE */, \
+	0x203F /* UNDERTIE */, \
 	0x2040 /* CHARACTER TIE */,\
 	0x2054 /* INVERTED UNDERTIE */,\
-	0xfe33 /* PRESENTATION FORM FOR VERTICAL LOW LINE */, \
-	0xfe34 /* PRESENTATION FORM FOR VERTICAL WAVY LOW LINE */, \
-	0xfe4d /* DASHED LOW LINE */, \
-	0xfe4e /* CENTRELINE LOW LINE */, \
-	0xfe4f /* WAVY LOW LINE */, \
-	0xff3f /* FULLWIDTH LOW LINE */
+	0xFE33 /* PRESENTATION FORM FOR VERTICAL LOW LINE */, \
+	0xFE34 /* PRESENTATION FORM FOR VERTICAL WAVY LOW LINE */, \
+	0xFE4D /* DASHED LOW LINE */, \
+	0xFE4E /* CENTRELINE LOW LINE */, \
+	0xFE4F /* WAVY LOW LINE */, \
+	0xFF3F /* FULLWIDTH LOW LINE */
 
 static const chr backw[] = {	/* \w */
     CHR('['), CHR('['), CHR(':'),
@@ -288,7 +288,7 @@ static const chr brbackw[] = {	/* \w within brackets */
 /*
  - lexword - interpolate a bracket expression for word characters
  * Possibly ought to inquire whether there is a "word" character class.
- ^ static VOID lexword(struct vars *);
+ ^ static void lexword(struct vars *);
  */
 static void
 lexword(
@@ -755,6 +755,7 @@ lexescape(
     struct vars *v)
 {
     chr c;
+    int i;
     static const chr alert[] = {
 	CHR('a'), CHR('l'), CHR('e'), CHR('r'), CHR('t')
     };
@@ -831,18 +832,27 @@ lexescape(
 	RETV(PLAIN, CHR('\t'));
 	break;
     case CHR('u'):
-	c = lexdigits(v, 16, 4, 4);
+	c = (uchr) lexdigits(v, 16, 4, 4);
 	if (ISERR()) {
 	    FAILW(REG_EESCAPE);
 	}
 	RETV(PLAIN, c);
 	break;
     case CHR('U'):
-	c = lexdigits(v, 16, 8, 8);
+	i = lexdigits(v, 16, 8, 8);
 	if (ISERR()) {
 	    FAILW(REG_EESCAPE);
 	}
-	RETV(PLAIN, c);
+#if CHRBITS > 16
+	if ((unsigned)i > 0x10FFFF) {
+	    i = 0xFFFD;
+	}
+#else
+	if ((unsigned)i & ~0xFFFF) {
+	    i = 0xFFFD;
+	}
+#endif
+	RETV(PLAIN, (uchr)i);
 	break;
     case CHR('v'):
 	RETV(PLAIN, CHR('\v'));

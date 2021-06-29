@@ -396,20 +396,20 @@ TclMaxListLength(
     }
 
     /* No list element before leading white space */
-    count += 1 - TclIsSpaceProc(*bytes);
+    count += 1 - TclIsSpaceProcM(*bytes);
 
     /* Count white space runs as potential element separators */
     while (numBytes) {
 	if ((numBytes == -1) && (*bytes == '\0')) {
 	    break;
 	}
-	if (TclIsSpaceProc(*bytes)) {
+	if (TclIsSpaceProcM(*bytes)) {
 	    /* Space run started; bump count */
 	    count++;
 	    do {
 		bytes++;
 		numBytes -= (numBytes != -1);
-	    } while (numBytes && TclIsSpaceProc(*bytes));
+	    } while (numBytes && TclIsSpaceProcM(*bytes));
 	    if ((numBytes == 0) || ((numBytes == -1) && (*bytes == '\0'))) {
 		break;
 	    }
@@ -420,7 +420,7 @@ TclMaxListLength(
     }
 
     /* No list element following trailing white space */
-    count -= TclIsSpaceProc(bytes[-1]);
+    count -= TclIsSpaceProcM(bytes[-1]);
 
     done:
     if (endPtr) {
@@ -508,7 +508,7 @@ TclFindElement(
      */
 
     limit = (list + listLength);
-    while ((p < limit) && (TclIsSpaceProc(*p))) {
+    while ((p < limit) && (TclIsSpaceProcM(*p))) {
 	p++;
     }
     if (p == limit) {		/* no element found */
@@ -553,7 +553,7 @@ TclFindElement(
 	    } else if (openBraces == 1) {
 		size = (p - elemStart);
 		p++;
-		if ((p >= limit) || TclIsSpaceProc(*p)) {
+		if ((p >= limit) || TclIsSpaceProcM(*p)) {
 		    goto done;
 		}
 
@@ -563,7 +563,7 @@ TclFindElement(
 
 		if (interp != NULL) {
 		    p2 = p;
-		    while ((p2 < limit) && (!TclIsSpaceProc(*p2))
+		    while ((p2 < limit) && (!TclIsSpaceProcM(*p2))
 			    && (p2 < p+20)) {
 			p2++;
 		    }
@@ -595,23 +595,6 @@ TclFindElement(
 	    break;
 
 	    /*
-	     * Space: ignore if element is in braces or quotes; otherwise
-	     * terminate element.
-	     */
-
-	case ' ':
-	case '\f':
-	case '\n':
-	case '\r':
-	case '\t':
-	case '\v':
-	    if ((openBraces == 0) && !inQuotes) {
-		size = (p - elemStart);
-		goto done;
-	    }
-	    break;
-
-	    /*
 	     * Double-quote: if element is in quotes then terminate it.
 	     */
 
@@ -619,7 +602,7 @@ TclFindElement(
 	    if (inQuotes) {
 		size = (p - elemStart);
 		p++;
-		if ((p >= limit) || TclIsSpaceProc(*p)) {
+		if ((p >= limit) || TclIsSpaceProcM(*p)) {
 		    goto done;
 		}
 
@@ -629,7 +612,7 @@ TclFindElement(
 
 		if (interp != NULL) {
 		    p2 = p;
-		    while ((p2 < limit) && (!TclIsSpaceProc(*p2))
+		    while ((p2 < limit) && (!TclIsSpaceProcM(*p2))
 			    && (p2 < p+20)) {
 			p2++;
 		    }
@@ -640,6 +623,20 @@ TclFindElement(
 		return TCL_ERROR;
 	    }
 	    break;
+
+	default:
+	    if (TclIsSpaceProcM(*p)) {
+		/*
+		 * Space: ignore if element is in braces or quotes;
+		 * otherwise terminate element.
+		 */
+		if ((openBraces == 0) && !inQuotes) {
+		    size = (p - elemStart);
+		    goto done;
+		}
+	    }
+	    break;
+
 	}
 	p++;
     }
@@ -666,7 +663,7 @@ TclFindElement(
     }
 
   done:
-    while ((p < limit) && (TclIsSpaceProc(*p))) {
+    while ((p < limit) && (TclIsSpaceProcM(*p))) {
 	p++;
     }
     *elementPtr = elemStart;
@@ -952,6 +949,23 @@ TclScanElement(
 	return 2;
     }
 
+#if COMPAT
+    /*
+     * We have an established history in TclConvertElement() when quoting
+     * because of a leading hash character to force what would be the
+     * CONVERT_MASK mode into the CONVERT_BRACE mode. That is, we format
+     * the element #{a"b} like this:
+     *			{#{a"b}}
+     * and not like this:
+     *			\#{a\"b}
+     * This is inconsistent with [list x{a"b}], but we will not change that now.
+     * Set that preference here so that we compute a tight size requirement.
+     */
+    if ((*src == '#') && !(*flagPtr & TCL_DONT_QUOTE_HASH)) {
+	preferBrace = 1;
+    }
+#endif
+
     if ((*p == '{') || (*p == '"')) {
 	/*
 	 * Must escape or protect so leading character of value is not
@@ -996,12 +1010,6 @@ TclScanElement(
 	case '[':
 	case '$':
 	case ';':
-	case ' ':
-	case '\f':
-	case '\n':
-	case '\r':
-	case '\t':
-	case '\v':
 	    forbidNone = 1;
 	    extra++;		/* Escape sequences all one byte longer. */
 #if COMPAT
@@ -1038,6 +1046,15 @@ TclScanElement(
 		goto endOfString;
 	    }
 	    /* TODO: Panic on improper encoding? */
+	    break;
+	default:
+	    if (TclIsSpaceProcM(*p)) {
+		forbidNone = 1;
+		extra++;	/* Escape sequences all one byte longer. */
+#if COMPAT
+		preferBrace = 1;
+#endif
+	    }
 	    break;
 	}
 	length -= (length > 0);
@@ -1500,8 +1517,8 @@ Tcl_Backslash(
  *----------------------------------------------------------------------
  *
  * TclTrimRight --
- *	Takes two counted strings in the Tcl encoding which must both be
- *	null terminated.  Conceptually trims from the right side of the
+ *	Takes two counted strings in the Tcl encoding.  Conceptually
+ *	finds the sub string (offset) to trim from the right side of the
  *	first string all characters found in the second string.
  *
  * Results:
@@ -1517,15 +1534,14 @@ int
 TclTrimRight(
     const char *bytes,	/* String to be trimmed... */
     int numBytes,	/* ...and its length in bytes */
+			/* Calls to TclUtfToUniChar() in this routine
+			 * rely on (bytes[numBytes] == '\0'). */
     const char *trim,	/* String of trim characters... */
     int numTrim)	/* ...and its length in bytes */
+			/* Calls to TclUtfToUniChar() in this routine
+			 * rely on (trim[numTrim] == '\0'). */
 {
-    const char *p = bytes + numBytes;
-    int pInc;
-
-    if ((bytes[numBytes] != '\0') || (trim[numTrim] != '\0')) {
-	Tcl_Panic("TclTrimRight works only on null-terminated strings");
-    }
+    const char *pp, *p = bytes + numBytes;
 
     /* Empty strings -> nothing to do */
     if ((numBytes == 0) || (numTrim == 0)) {
@@ -1536,10 +1552,13 @@ TclTrimRight(
     do {
 	Tcl_UniChar ch1;
 	const char *q = trim;
-	int bytesLeft = numTrim;
+	int pInc = 0, bytesLeft = numTrim;
 
-	p = Tcl_UtfPrev(p, bytes);
- 	pInc = TclUtfToUniChar(p, &ch1);
+	pp = TclUtfPrev(p, bytes);
+	do {
+	    pp += pInc;
+ 	    pInc = TclUtfToUniChar(pp, &ch1);
+	} while (pp + pInc < p);
 
 	/* Inner loop: scan trim string for match to current character */
 	do {
@@ -1556,9 +1575,9 @@ TclTrimRight(
 
 	if (bytesLeft == 0) {
 	    /* No match; trim task done; *p is last non-trimmed char */
-	    p += pInc;
 	    break;
 	}
+	p = pp;
     } while (p > bytes);
 
     return numBytes - (p - bytes);
@@ -1568,8 +1587,8 @@ TclTrimRight(
  *----------------------------------------------------------------------
  *
  * TclTrimLeft --
- *	Takes two counted strings in the Tcl encoding which must both be
- *	null terminated.  Conceptually trims from the left side of the
+ *	Takes two counted strings in the Tcl encoding.  Conceptually
+ *	finds the sub string (offset) to trim from the left side of the
  *	first string all characters found in the second string.
  *
  * Results:
@@ -1585,14 +1604,14 @@ int
 TclTrimLeft(
     const char *bytes,	/* String to be trimmed... */
     int numBytes,	/* ...and its length in bytes */
+			/* Calls to TclUtfToUniChar() in this routine
+			 * rely on (bytes[numBytes] == '\0'). */
     const char *trim,	/* String of trim characters... */
     int numTrim)	/* ...and its length in bytes */
+			/* Calls to TclUtfToUniChar() in this routine
+			 * rely on (trim[numTrim] == '\0'). */
 {
     const char *p = bytes;
-
-    if ((bytes[numBytes] != '\0') || (trim[numTrim] != '\0')) {
-	Tcl_Panic("TclTrimLeft works only on null-terminated strings");
-    }
 
     /* Empty strings -> nothing to do */
     if ((numBytes == 0) || (numTrim == 0)) {
@@ -1626,9 +1645,64 @@ TclTrimLeft(
 
 	p += pInc;
 	numBytes -= pInc;
-    } while (numBytes);
+    } while (numBytes > 0);
 
     return p - bytes;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TclTrim --
+ *	Finds the sub string (offset) to trim from both sides of the
+ *	first string all characters found in the second string.
+ *
+ * Results:
+ *	The number of bytes to be removed from the start of the string
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+TclTrim(
+    const char *bytes,	/* String to be trimmed... */
+    int numBytes,	/* ...and its length in bytes */
+			/* Calls in this routine
+			 * rely on (bytes[numBytes] == '\0'). */
+    const char *trim,	/* String of trim characters... */
+    int numTrim,	/* ...and its length in bytes */
+			/* Calls in this routine
+			 * rely on (trim[numTrim] == '\0'). */
+    int *trimRightPtr)	/* Offset from the end of the string. */
+{
+    int trimLeft = 0, trimRight = 0;
+
+    /* Empty strings -> nothing to do */
+    if ((numBytes > 0) && (numTrim > 0)) {
+
+	/* When bytes is NUL-terminated, returns 0 <= trimLeft <= numBytes */
+	trimLeft = TclTrimLeft(bytes, numBytes, trim, numTrim);
+	numBytes -= trimLeft;
+
+	/* If we did not trim the whole string, it starts with a character
+	 * that we will not trim. Skip over it. */
+	if (numBytes > 0) {
+	    const char *first = bytes + trimLeft;
+	    bytes = TclUtfNext(first);
+	    numBytes -= (bytes - first);
+
+	    if (numBytes > 0) {
+		/* When bytes is NUL-terminated, returns
+		 * 0 <= trimRight <= numBytes */
+		trimRight = TclTrimRight(bytes, numBytes, trim, numTrim);
+	    }
+	}
+    }
+    *trimRightPtr = trimRight;
+    return trimLeft;
 }
 
 /*
@@ -1651,6 +1725,7 @@ TclTrimLeft(
  */
 
 /* The whitespace characters trimmed during [concat] operations */
+/* TODO: Find a reasonable way to guarantee in sync with TclIsSpaceProc() */
 #define CONCAT_WS " \f\v\r\t\n"
 #define CONCAT_WS_SIZE (int) (sizeof(CONCAT_WS "") - 1)
 
@@ -1687,25 +1762,18 @@ Tcl_Concat(
     result = (char *) ckalloc((unsigned) (bytesNeeded + argc));
 
     for (p = result, i = 0;  i < argc;  i++) {
-	int trim, elemLength;
+	int triml, trimr, elemLength;
 	const char *element;
 
 	element = argv[i];
 	elemLength = strlen(argv[i]);
 
-	/* Trim away the leading whitespace */
-	trim = TclTrimLeft(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE);
-	element += trim;
-	elemLength -= trim;
-
-	/*
-	 * Trim away the trailing whitespace.  Do not permit trimming
-	 * to expose a final backslash character.
-	 */
-
-	trim = TclTrimRight(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE);
-	trim -= trim && (element[elemLength - trim - 1] == '\\');
-	elemLength -= trim;
+	/* Trim away the leading/trailing whitespace. */
+	triml = TclTrim(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE, &trimr);
+	element += triml;
+	elemLength -= triml + trimr;
+	/* Do not permit trimming to expose a final backslash character. */
+	elemLength += trimr && (element[elemLength - 1] == '\\');
 
 	/* If we're left with empty element after trimming, do nothing */
 	if (elemLength == 0) {
@@ -1832,23 +1900,16 @@ Tcl_ConcatObj(
     Tcl_SetObjLength(resPtr, 0);
 
     for (i = 0;  i < objc;  i++) {
-	int trim;
+	int triml, trimr;
 
 	element = TclGetStringFromObj(objv[i], &elemLength);
 
-	/* Trim away the leading whitespace */
-	trim = TclTrimLeft(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE);
-	element += trim;
-	elemLength -= trim;
-
-	/*
-	 * Trim away the trailing whitespace.  Do not permit trimming
-	 * to expose a final backslash character.
-	 */
-
-	trim = TclTrimRight(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE);
-	trim -= trim && (element[elemLength - trim - 1] == '\\');
-	elemLength -= trim;
+	/* Trim away the leading/trailing whitespace. */
+	triml = TclTrim(element, elemLength, CONCAT_WS, CONCAT_WS_SIZE, &trimr);
+	element += triml;
+	elemLength -= triml + trimr;
+	/* Do not permit trimming to expose a final backslash character. */
+	elemLength += trimr && (element[elemLength - 1] == '\\');
 
 	/* If we're left with empty element after trimming, do nothing */
 	if (elemLength == 0) {
@@ -1919,7 +1980,6 @@ Tcl_StringCaseMatch(
     int nocase)			/* 0 for case sensitive, 1 for insensitive */
 {
     int p, charLen;
-    CONST char *pstart = pattern;
     Tcl_UniChar ch1, ch2;
 
     while (1) {
@@ -2084,10 +2144,13 @@ Tcl_StringCaseMatch(
 		    break;
 		}
 	    }
+	    /* If we reach here, we matched. Need to move past closing ] */
 	    while (*pattern != ']') {
 		if (*pattern == '\0') {
-		    pattern = Tcl_UtfPrev(pattern, pstart);
-		    break;
+		    /* We ran out of pattern after matching something in
+		     * (unclosed!) brackets. So long as we ran out of string
+		     * at the same time, we have a match. Otherwise, not. */
+		    return (*str == '\0');
 		}
 		pattern++;
 	    }
@@ -2340,7 +2403,8 @@ TclStringMatchObj(
 	udata = Tcl_GetUnicodeFromObj(strObj, &length);
 	uptn  = Tcl_GetUnicodeFromObj(ptnObj, &plen);
 	match = TclUniCharMatch(udata, length, uptn, plen, flags);
-    } else if (TclIsPureByteArray(strObj) && !flags) {
+    } else if (TclIsPureByteArray(strObj) && TclIsPureByteArray(ptnObj)
+		&& !flags) {
 	unsigned char *data, *ptn;
 
 	data = Tcl_GetByteArrayFromObj(strObj, &length);
@@ -2487,9 +2551,36 @@ Tcl_DStringAppendElement(
 {
     char *dst = dsPtr->string + dsPtr->length;
     int needSpace = TclNeedSpace(dsPtr->string, dst);
-    int flags = needSpace ? TCL_DONT_QUOTE_HASH : 0;
-    int newSize = dsPtr->length + needSpace
-	    + TclScanElement(element, -1, &flags);
+    int flags = 0, quoteHash = 1, newSize;
+
+    if (needSpace) {
+	/*
+	 * If we need a space to separate the new element from something
+	 * already ending the string, we're not appending the first element
+	 * of any list, so we need not quote any leading hash character.
+	 */
+	quoteHash = 0;
+    } else {
+	/*
+	 * We don't need a space, maybe because there's some already there.
+	 * Checking whether we might be appending a first element is a bit
+	 * more involved.
+	 *
+	 * Backtrack over all whitespace.
+	 */
+	while ((--dst >= dsPtr->string) && TclIsSpaceProcM(*dst)) {
+	}
+
+	/* Call again without whitespace to confound things. */
+	quoteHash = !TclNeedSpace(dsPtr->string, dst+1);
+    }
+    if (!quoteHash) {
+	flags |= TCL_DONT_QUOTE_HASH;
+    }
+    newSize = dsPtr->length + needSpace + TclScanElement(element, -1, &flags);
+    if (!quoteHash) {
+	flags |= TCL_DONT_QUOTE_HASH;
+    }
 
     /*
      * Allocate a larger buffer for the string if the current one isn't large
@@ -2522,8 +2613,8 @@ Tcl_DStringAppendElement(
 		element = dsPtr->string + offset;
 	    }
 	}
-	dst = dsPtr->string + dsPtr->length;
     }
+    dst = dsPtr->string + dsPtr->length;
 
     /*
      * Convert the new string to a list element and copy it into the buffer at
@@ -2534,15 +2625,8 @@ Tcl_DStringAppendElement(
 	*dst = ' ';
 	dst++;
 	dsPtr->length++;
-
-	/*
-	 * If we need a space to separate this element from preceding stuff,
-	 * then this element will not lead a list, and need not have it's
-	 * leading '#' quoted.
-	 */
-
-	flags |= TCL_DONT_QUOTE_HASH;
     }
+
     dsPtr->length += TclConvertElement(element, -1, dst, flags);
     dsPtr->string[dsPtr->length] = '\0';
     return dsPtr->string;
@@ -3083,62 +3167,69 @@ TclNeedSpace(
     /*
      * A space is needed unless either:
      * (a) we're at the start of the string, or
-     */
+     *
+     * (NOTE: This check is now absorbed into the loop below.)
+     *
 
     if (end == start) {
 	return 0;
     }
+
+     *
+     */
 
     /*
      * (b) we're at the start of a nested list-element, quoted with an open
      *	   curly brace; we can be nested arbitrarily deep, so long as the
      *	   first curly brace starts an element, so backtrack over open curly
      *	   braces that are trailing characters of the string; and
-     */
+     *
+     *  (NOTE: Every character our parser is looking for is a proper
+     *  single-byte encoding of an ASCII value. It does not accept
+     *  overlong encodings.  Given that, there's no benefit using
+     *  Tcl_UtfPrev. If it would find what we seek, so would byte-by-byte
+     *  backward scan. Save routine call overhead and risk of wrong
+     *  results should the behavior of Tcl_UtfPrev change in unexpected ways.
+     *	Reconsider this if we ever start treating non-ASCII Unicode
+     *	characters as meaningful list syntax, expanded Unicode spaces as
+     *	element separators, for example.)
+     *
 
     end = Tcl_UtfPrev(end, start);
     while (*end == '{') {
-	if (end == start) {
-	    return 0;
-	}
-	end = Tcl_UtfPrev(end, start);
+        if (end == start) {
+            return 0;
+        }
+        end = Tcl_UtfPrev(end, start);
+    }
+
+     *
+     */
+
+    while ((--end >= start) && (*end == '{')) {
+    }
+    if (end < start) {
+        return 0;
     }
 
     /*
      * (c) the trailing character of the string is already a list-element
-     *	   separator (according to TclFindElement); that is, one of these
-     *	   characters:
-     *		\u0009	\t	TAB
-     *		\u000A	\n	NEWLINE
-     *		\u000B	\v	VERTICAL TAB
-     *		\u000C	\f	FORM FEED
-     *		\u000D	\r	CARRIAGE RETURN
-     *		\u0020		SPACE
-     *	   with the condition that the penultimate character is not a
-     *	   backslash.
+     *	   separator, Use the same testing routine as TclFindElement to
+     *	   enforce consistency.
      */
 
-    if (*end > 0x20) {
+    if (TclIsSpaceProcM(*end)) {
+	int result = 0;
+
 	/*
-	 * Performance tweak. All ASCII spaces are <= 0x20. So get a quick
-	 * answer for most characters before comparing against all spaces in
-	 * the switch below.
-	 *
-	 * NOTE: Remove this if other Unicode spaces ever get accepted as
-	 * list-element separators.
+	 * Trailing whitespace might be part of a backslash escape
+	 * sequence. Handle that possibility.
 	 */
-	return 1;
-    }
-    switch (*end) {
-    case ' ':
-    case '\t':
-    case '\n':
-    case '\r':
-    case '\v':
-    case '\f':
-	if ((end == start) || (end[-1] != '\\')) {
-	    return 0;
+
+	while ((--end >= start) && (*end == '\\')) {
+	    result = !result;
 	}
+	return result;
     }
     return 1;
 }
@@ -3174,10 +3265,10 @@ TclFormatInt(buffer, n)
 				 * formatted characters are written. */
     long n;			/* The integer to format. */
 {
-    long intVal;
+    unsigned long intVal;
     int i;
     int numFormatted, j;
-    char *digits = "0123456789";
+    static const char digits[] = "0123456789";
 
     /*
      * Check first whether "n" is zero.
@@ -3190,27 +3281,16 @@ TclFormatInt(buffer, n)
     }
 
     /*
-     * Check whether "n" is the maximum negative value. This is
-     * -2^(m-1) for an m-bit word, and has no positive equivalent;
-     * negating it produces the same value.
-     */
-
-    intVal = -n;			/* [Bug 3390638] Workaround for*/
-    if (n == -n || intVal == n) {	/* broken compiler optimizers. */
-	return sprintf(buffer, "%ld", n);
-    }
-
-    /*
      * Generate the characters of the result backwards in the buffer.
      */
 
-    intVal = (n < 0? -n : n);
+    intVal = (n < 0 ? -(unsigned long)n : (unsigned long)n);
     i = 0;
     buffer[0] = '\0';
     do {
 	i++;
 	buffer[i] = digits[intVal % 10];
-	intVal = intVal/10;
+	intVal = intVal / 10;
     } while (intVal > 0);
     if (n < 0) {
 	i++;
@@ -3289,7 +3369,7 @@ TclGetIntForIndex(
      * Leading whitespace is acceptable in an index.
      */
 
-    while (length && TclIsSpaceProc(*bytes)) {
+    while (length && TclIsSpaceProcM(*bytes)) {
 	bytes++;
 	length--;
     }
@@ -3302,7 +3382,7 @@ TclGetIntForIndex(
 	if ((savedOp != '+') && (savedOp != '-')) {
 	    goto parseError;
 	}
-	if (TclIsSpaceProc(opPtr[1])) {
+	if (TclIsSpaceProcM(opPtr[1])) {
 	    goto parseError;
 	}
 	*opPtr = '\0';
@@ -3448,7 +3528,7 @@ SetEndOffsetFromAny(
 	 * after "end-" to Tcl_GetInt, then reverse for offset.
 	 */
 
-	if (TclIsSpaceProc(bytes[4])) {
+	if (TclIsSpaceProcM(bytes[4])) {
 	    return TCL_ERROR;
 	}
 	if (Tcl_GetInt(interp, bytes+4, &offset) != TCL_OK) {
@@ -3513,7 +3593,7 @@ TclCheckBadOctal(
      * zero. Try to generate a meaningful error message.
      */
 
-    while (TclIsSpaceProc(*p)) {
+    while (TclIsSpaceProcM(*p)) {
 	p++;
     }
     if (*p == '+' || *p == '-') {
@@ -3526,7 +3606,7 @@ TclCheckBadOctal(
 	while (isdigit(UCHAR(*p))) {	/* INTL: digit. */
 	    p++;
 	}
-	while (TclIsSpaceProc(*p)) {
+	while (TclIsSpaceProcM(*p)) {
 	    p++;
 	}
 	if (*p == '\0') {

@@ -247,7 +247,7 @@ AC_DEFUN([SC_PATH_TKCONFIG], [
 #
 # Results:
 #
-#	Subst the following vars:
+#	Substitutes the following vars:
 #		TCL_BIN_DIR
 #		TCL_SRC_DIR
 #		TCL_LIB_FILE
@@ -694,6 +694,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 
     # Set some defaults (may get changed below)
     EXTRA_CFLAGS=""
+	AC_DEFINE(MODULE_SCOPE, [extern], [No need to mark inidividual symbols as hidden])
 
     AC_CHECK_PROG(CYGPATH, cygpath, cygpath -m, echo)
 
@@ -708,7 +709,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
       AC_CACHE_CHECK(for cross-compile version of gcc,
 	ac_cv_cross,
 	AC_TRY_COMPILE([
-	    #ifndef __WIN32__
+	    #ifndef _WIN32
 		#error cross-compiler
 	    #endif
 	], [],
@@ -775,7 +776,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	AC_CACHE_CHECK(for mingw32 version of gcc,
 	    ac_cv_win32,
 	    AC_TRY_COMPILE([
-		#ifdef __WIN32__
+		#ifdef _WIN32
 		    #error win32
 		#endif
 	    ], [],
@@ -790,7 +791,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
     AC_MSG_CHECKING([compiler flags])
     if test "${GCC}" = "yes" ; then
 	SHLIB_LD=""
-	SHLIB_LD_LIBS=""
+	SHLIB_LD_LIBS='${LIBS}'
 	LIBS="-lws2_32"
 	# mingw needs to link ole32 and oleaut32 for [send], but MSVC doesn't
 	LIBS_GUI="-lgdi32 -lcomdlg32 -limm32 -lcomctl32 -lshell32 -luuid -lole32 -loleaut32"
@@ -810,9 +811,6 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	    # static
             AC_MSG_RESULT([using static flags])
 	    runtime=
-	    MAKE_DLL="echo "
-	    LIBSUFFIX="s\${DBGX}.a"
-	    LIBFLAGSUFFIX="s\${DBGX}"
 	    LIBRARIES="\${STATIC_LIBRARIES}"
 	    EXESUFFIX="s\${DBGX}.exe"
 	else
@@ -826,29 +824,29 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	    fi
 
 	    runtime=
-	    # Link with gcc since ld does not link to default libs like
-	    # -luser32 and -lmsvcrt by default.
-	    SHLIB_LD='${CC} -shared'
-	    SHLIB_LD_LIBS='${LIBS}'
 	    # Add SHLIB_LD_LIBS to the Make rule, not here.
-	    MAKE_DLL="\${SHLIB_LD} \$(LDFLAGS) -o \[$]@ ${extra_ldflags} \
-	        -Wl,--out-implib,\$(patsubst %.dll,lib%.a,\[$]@)"
 
-	    LIBSUFFIX="\${DBGX}.a"
-	    LIBFLAGSUFFIX="\${DBGX}"
 	    EXESUFFIX="\${DBGX}.exe"
 	    LIBRARIES="\${SHARED_LIBRARIES}"
 	fi
+	# Link with gcc since ld does not link to default libs like
+	# -luser32 and -lmsvcrt by default.
+	SHLIB_LD='${CC} -shared'
+	SHLIB_LD_LIBS='${LIBS}'
+	MAKE_DLL="\${SHLIB_LD} \$(LDFLAGS) -o \[$]@ ${extra_ldflags} \
+	    -Wl,--out-implib,\$(patsubst %.dll,lib%.a,\[$]@)"
 	# DLLSUFFIX is separate because it is the building block for
 	# users of tclConfig.sh that may build shared or static.
 	DLLSUFFIX="\${DBGX}.dll"
+	LIBSUFFIX="\${DBGX}.a"
+	LIBFLAGSUFFIX="\${DBGX}"
 	SHLIB_SUFFIX=.dll
 
 	EXTRA_CFLAGS="${extra_cflags}"
 
 	CFLAGS_DEBUG=-g
 	CFLAGS_OPTIMIZE="-O2 -fomit-frame-pointer"
-	CFLAGS_WARNING="-Wall"
+	CFLAGS_WARNING="-Wall -Wdeclaration-after-statement -Wpointer-arith"
 	LDFLAGS_DEBUG=
 	LDFLAGS_OPTIMIZE=
 
@@ -903,23 +901,15 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	    # static
             AC_MSG_RESULT([using static flags])
 	    runtime=-MT
-	    MAKE_DLL="echo "
-	    LIBSUFFIX="s\${DBGX}.lib"
-	    LIBFLAGSUFFIX="s\${DBGX}"
 	    LIBRARIES="\${STATIC_LIBRARIES}"
 	    EXESUFFIX="s\${DBGX}.exe"
-	    SHLIB_LD_LIBS=""
 	else
 	    # dynamic
             AC_MSG_RESULT([using shared flags])
 	    runtime=-MD
 	    # Add SHLIB_LD_LIBS to the Make rule, not here.
-	    MAKE_DLL="\${SHLIB_LD} \$(LDFLAGS) -out:\[$]@"
-	    LIBSUFFIX="\${DBGX}.lib"
-	    LIBFLAGSUFFIX="\${DBGX}"
-	    EXESUFFIX="\${DBGX}.exe"
 	    LIBRARIES="\${SHARED_LIBRARIES}"
-	    SHLIB_LD_LIBS='${LIBS}'
+	    EXESUFFIX="\${DBGX}.exe"
 	    case "x`echo \${VisualStudioVersion}`" in
 		x1[[4-9]]*)
 		    lflags="${lflags} -nodefaultlib:libucrt.lib"
@@ -928,32 +918,22 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 		    ;;
 	    esac
 	fi
+	MAKE_DLL="\${SHLIB_LD} \$(LDFLAGS) -out:\[$]@"
 	# DLLSUFFIX is separate because it is the building block for
 	# users of tclConfig.sh that may build shared or static.
 	DLLSUFFIX="\${DBGX}.dll"
+	LIBSUFFIX="\${DBGX}.lib"
+	LIBFLAGSUFFIX="\${DBGX}"
 
-	# This is a 2-stage check to make sure we have the 64-bit SDK
-	# We have to know where the SDK is installed.
-	# This magic is based on MS Platform SDK for Win2003 SP1 - hobbs
 	if test "$do64bit" != "no" ; then
-	    if test "x${MSSDK}x" = "xx" ; then
-		MSSDK="C:/Progra~1/Microsoft Platform SDK"
-	    fi
-	    MSSDK=`echo "$MSSDK" | sed -e 's!\\\!/!g'`
-	    PATH64=""
 	    case "$do64bit" in
 		amd64|x64|yes)
 		    MACHINE="AMD64" ; # assume AMD64 as default 64-bit build
-		    PATH64="${MSSDK}/Bin/Win64/x86/AMD64"
 		    ;;
 		ia64)
 		    MACHINE="IA64"
-		    PATH64="${MSSDK}/Bin/Win64"
 		    ;;
 	    esac
-	    if test ! -d "${PATH64}" ; then
-		AC_MSG_WARN([Could not find 64-bit $MACHINE SDK])
-	    fi
 	    AC_MSG_RESULT([   Using 64-bit $MACHINE mode])
 	fi
 
@@ -968,21 +948,12 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	esac
 
 	if test "$do64bit" != "no" ; then
-	    # The space-based-path will work for the Makefile, but will
-	    # not work if AC_TRY_COMPILE is called.  TEA has the
-	    # TEA_PATH_NOSPACE to avoid this issue.
-	    # Check if _WIN64 is already recognized, and if so we don't
-	    # need to modify CC.
-	    AC_CHECK_DECL([_WIN64], [],
-			  [CC="\"${PATH64}/cl.exe\" -I\"${MSSDK}/Include\" \
-			 -I\"${MSSDK}/Include/crt\" \
-			 -I\"${MSSDK}/Include/crt/sys\""])
-	    RC="\"${MSSDK}/bin/rc.exe\""
+	    RC="rc"
 	    CFLAGS_DEBUG="-nologo -Zi -Od ${runtime}d"
 	    # Do not use -O2 for Win64 - this has proved buggy in code gen.
 	    CFLAGS_OPTIMIZE="-nologo -O1 ${runtime}"
-	    lflags="${lflags} -nologo -MACHINE:${MACHINE} -LIBPATH:\"${MSSDK}/Lib/${MACHINE}\""
-	    LINKBIN="\"${PATH64}/link.exe\""
+	    lflags="${lflags} -nologo -MACHINE:${MACHINE}"
+	    LINKBIN="link"
 	    # Avoid 'unresolved external symbol __security_cookie' errors.
 	    # c.f. http://support.microsoft.com/?id=894573
 	    LIBS="$LIBS bufferoverflowU.lib"
@@ -1091,6 +1062,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	fi
 
 	SHLIB_LD="${LINKBIN} -dll -incremental:no ${lflags}"
+	SHLIB_LD_LIBS='${LIBS}'
 	# link -lib only works when -lib is the first arg
 	STLIB_LD="${LINKBIN} -lib ${lflags}"
 	RC_OUT=-fo

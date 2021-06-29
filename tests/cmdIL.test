@@ -15,6 +15,8 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 
 # Used for constraining memory leak tests
 testConstraint memory [llength [info commands memory]]
+source [file join [file dirname [info script]] internals.tcl]
+namespace import -force ::tcltest::internals::*
 
 test cmdIL-1.1 {Tcl_LsortObjCmd procedure} {
     list [catch {lsort} msg] $msg
@@ -445,6 +447,21 @@ test cmdIL-5.5 {lsort with list style index and sharing} -body {
 } -result 0 -cleanup {
     rename test_lsort ""
 }
+test cmdIL-5.7 {lsort memory exhaustion} -constraints {testWithLimit} -body {
+    # test it in child process (with limited address space) ca. 80MB extra memory
+    # on x64 system it would be not enough to sort 4M items (the half 2M only),
+    # warn and skip if no error (enough memory) or error by list creation:
+    testWithLimit \
+	-warn-on-code 0 -warn-on-alloc-error 1 \
+	-addmem [expr {$tcl_platform(pointerSize)*4000000 + $tcl_platform(pointerSize)*3*2000000}] \
+    {
+	# create list and get length (avoid too long output in interactive shells):
+	llength [set l [lrepeat 4000000 ""]]
+	# test OOM:
+	llength [lsort $l]
+    }
+    # expecting error no memory by sort
+} -returnCodes 1 -result {no enough memory to proccess sort of 4000000 items}
 
 # Compiled version
 test cmdIL-6.1 {lassign command syntax} -body {

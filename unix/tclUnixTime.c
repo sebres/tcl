@@ -118,7 +118,7 @@ TclpGetMicroseconds(void)
  *	This procedure returns a value that represents the highest resolution
  *	clock available on the system. There are no garantees on what the
  *	resolution will be. In Tcl we will call this value a "click". The
- *	start time is also system dependant.
+ *	start time is also system dependent.
  *
  * Results:
  *	Number of clicks from some start time.
@@ -167,7 +167,7 @@ TclpGetClicks(void)
  *	This procedure returns a WideInt value that represents the highest
  *	resolution clock available on the system. There are no garantees on
  *	what the resolution will be. In Tcl we will call this value a "click".
- *	The start time is also system dependant.
+ *	The start time is also system dependent.
  *
  * Results:
  *	Number of WideInt clicks from some start time.
@@ -228,7 +228,7 @@ TclpWideClicksToNanoseconds(
 #ifdef MAC_OSX_TCL
 	static mach_timebase_info_data_t tb;
 	static uint64_t maxClicksForUInt64;
-	
+
 	if (!tb.denom) {
 	    mach_timebase_info(&tb);
 	    maxClicksForUInt64 = UINT64_MAX / tb.numer;
@@ -251,7 +251,7 @@ TclpWideClicksToNanoseconds(
  *
  * TclpWideClickInMicrosec --
  *
- *	This procedure return scale to convert click values from the 
+ *	This procedure return scale to convert click values from the
  *	TclpGetWideClicks native resolution to microsecond resolution
  *	and back.
  *

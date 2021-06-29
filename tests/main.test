@@ -621,7 +621,7 @@ namespace eval ::tcl::test::main {
 	variable wait
 	chan event $f readable \
 		[list set [namespace which -variable wait] "child exit"]
-	set id [after 2000 [list set [namespace which -variable wait] timeout]]
+	set id [after 5000 [list set [namespace which -variable wait] timeout]]
 	vwait [namespace which -variable wait]
 	after cancel $id
 	set wait
@@ -644,7 +644,7 @@ namespace eval ::tcl::test::main {
 	variable wait
 	chan event $f readable \
 		[list set [namespace which -variable wait] "child exit"]
-	set id [after 2000 [list set [namespace which -variable wait] timeout]]
+	set id [after 5000 [list set [namespace which -variable wait] timeout]]
 	vwait [namespace which -variable wait]
 	after cancel $id
 	set wait
@@ -1218,8 +1218,6 @@ namespace eval ::tcl::test::main {
 	Bug 1775878
     } -constraints {
 	exec Tcltest
-    } -setup {
-	catch {set f [open "|[list [interpreter]]" w+]}
     } -body {
 	exec [interpreter] << "testsetmainloop\nputs \\\npwd\ntestexitmainloop" >& result
 	set f [open result]

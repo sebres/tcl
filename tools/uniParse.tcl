@@ -114,8 +114,8 @@ proc uni::buildTables {data} {
 	set items [split $line \;]
 
 	scan [lindex $items 0] %x index
-	if {$index > 0x2ffff} then {
-	    # Ignore non-BMP characters, as long as Tcl doesn't support them
+	if {$index > 0x3FFFF} then {
+	    # Ignore characters > plane 3
 	    continue
 	}
 	set index [format %d $index]
@@ -212,7 +212,7 @@ static const unsigned short pageMap\[\] = {"
 	    puts $f $line
 	    set lastpage [expr {[lindex $line end] >> $shift}]
 	    puts stdout "lastpage: $lastpage"
-	    puts $f "#if TCL_UTF_MAX > 3"
+	    puts $f "#if TCL_UTF_MAX > 3 || TCL_MAJOR_VERSION > 8 || TCL_MINOR_VERSION > 6"
 	    set line "    ,"
 	}
 	append line [lindex $pMap $i]
@@ -242,7 +242,7 @@ static const unsigned char groupMap\[\] = {"
 	set lastj [expr {[llength $page] - 1}]
 	if {$i == ($lastpage + 1)} {
 	    puts $f [string trimright $line " \t,"]
-	    puts $f "#if TCL_UTF_MAX > 3"
+	    puts $f "#if TCL_UTF_MAX > 3 || TCL_MAJOR_VERSION > 8 || TCL_MINOR_VERSION > 6"
 	    set line "    ,"
 	}
 	for {set j 0} {$j <= $lastj} {incr j} {
@@ -272,6 +272,7 @@ static const unsigned char groupMap\[\] = {"
  *				 100 = subtract delta for title/upper
  *				 101 = sub delta for upper, sub 1 for title
  *				 110 = sub delta for upper, add delta for lower
+ *				 111 = subtract delta for upper
  *
  * Bits 8-31	Case delta: delta for case conversions.  This should be the
  *			    highest field so we can easily sign extend.
@@ -309,10 +310,14 @@ static const int groups\[\] = {"
 		}
 	    }
 	} elseif {$toupper} {
-	    # subtract delta for upper, add delta for lower
-	    set case 6
 	    set delta $toupper
-	    if {$tolower != $toupper} {
+	    if {$tolower == $toupper} {
+		# subtract delta for upper, add delta for lower
+		set case 6
+	    } elseif {!$tolower} {
+		# subtract delta for upper
+		set case 7
+	    } else {
 		error "New case conversion type needed: $toupper $tolower $totitle"
 	    }
 	} elseif {$tolower} {
@@ -337,10 +342,10 @@ static const int groups\[\] = {"
     puts $f $line
     puts -nonewline $f "};
 
-#if TCL_UTF_MAX > 3
-#   define UNICODE_OUT_OF_RANGE(ch) (((ch) & 0x1fffff) >= [format 0x%x $next])
+#if TCL_UTF_MAX > 3 || TCL_MAJOR_VERSION > 8 || TCL_MINOR_VERSION > 6
+#   define UNICODE_OUT_OF_RANGE(ch) (((ch) & 0x1FFFFF) >= [format 0x%X $next])
 #else
-#   define UNICODE_OUT_OF_RANGE(ch) (((ch) & 0x1f0000) != 0)
+#   define UNICODE_OUT_OF_RANGE(ch) (((ch) & 0x1F0000) != 0)
 #endif
 
 /*
@@ -387,8 +392,8 @@ enum {
  * to do sign extension on right shifts.
  */
 
-#define GetCaseType(info) (((info) & 0xe0) >> 5)
-#define GetCategory(ch) (GetUniCharInfo(ch) & 0x1f)
+#define GetCaseType(info) (((info) & 0xE0) >> 5)
+#define GetCategory(ch) (GetUniCharInfo(ch) & 0x1F)
 #define GetDelta(info) ((info) >> 8)
 
 /*
@@ -396,7 +401,11 @@ enum {
  * Unicode character tables.
  */
 
-#define GetUniCharInfo(ch) (groups\[groupMap\[pageMap\[((ch) & 0xffff) >> OFFSET_BITS\] | ((ch) & ((1 << OFFSET_BITS)-1))\]\])
+#if TCL_UTF_MAX > 3 || TCL_MAJOR_VERSION > 8 || TCL_MINOR_VERSION > 6
+#   define GetUniCharInfo(ch) (groups\[groupMap\[pageMap\[((ch) & 0x1FFFFF) >> OFFSET_BITS\] | ((ch) & ((1 << OFFSET_BITS)-1))\]\])
+#else
+#   define GetUniCharInfo(ch) (groups\[groupMap\[pageMap\[((ch) & 0xFFFF) >> OFFSET_BITS\] | ((ch) & ((1 << OFFSET_BITS)-1))\]\])
+#endif
 "
 
     close $f

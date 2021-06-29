@@ -1,4 +1,4 @@
-/* 
+/*
  * tclStubInit.c --
  *
  *	This file contains the initializers for the Tcl stub vectors.
@@ -36,6 +36,7 @@
 #undef TclWinGetServByName
 #undef TclWinGetSockOpt
 #undef TclWinSetSockOpt
+#define TclStaticPackage Tcl_StaticPackage
 #define TclUnusedStubEntry NULL
 
 /*
@@ -550,6 +551,17 @@ TclIntStubs tclIntStubs = {
     NULL, /* 247 */
     NULL, /* 248 */
     TclDoubleDigits, /* 249 */
+    NULL, /* 250 */
+    TclRegisterLiteral, /* 251 */
+    NULL, /* 252 */
+    NULL, /* 253 */
+    NULL, /* 254 */
+    NULL, /* 255 */
+    NULL, /* 256 */
+    TclStaticPackage, /* 257 */
+    NULL, /* 258 */
+    NULL, /* 259 */
+    TclUnusedStubEntry, /* 260 */
 };
 
 TclIntPlatStubs tclIntPlatStubs = {
@@ -733,6 +745,23 @@ TclTomMathStubs tclTomMathStubs = {
     TclBN_mp_init_set_int, /* 61 */
     TclBN_mp_set_int, /* 62 */
     TclBN_mp_cnt_lsb, /* 63 */
+    NULL, /* 64 */
+    NULL, /* 65 */
+    NULL, /* 66 */
+    NULL, /* 67 */
+    NULL, /* 68 */
+    NULL, /* 69 */
+    NULL, /* 70 */
+    NULL, /* 71 */
+    NULL, /* 72 */
+    NULL, /* 73 */
+    NULL, /* 74 */
+    NULL, /* 75 */
+    NULL, /* 76 */
+    NULL, /* 77 */
+    NULL, /* 78 */
+    NULL, /* 79 */
+    TclUnusedStubEntry, /* 80 */
 };
 
 static TclStubHooks tclStubHooks = {
@@ -1398,7 +1427,26 @@ TclStubs tclStubs = {
     NULL, /* 627 */
     NULL, /* 628 */
     NULL, /* 629 */
-    TclUnusedStubEntry, /* 630 */
+    NULL, /* 630 */
+    NULL, /* 631 */
+    NULL, /* 632 */
+    NULL, /* 633 */
+    NULL, /* 634 */
+    NULL, /* 635 */
+    NULL, /* 636 */
+    NULL, /* 637 */
+    NULL, /* 638 */
+    NULL, /* 639 */
+    NULL, /* 640 */
+    NULL, /* 641 */
+    NULL, /* 642 */
+    NULL, /* 643 */
+    NULL, /* 644 */
+    NULL, /* 645 */
+    NULL, /* 646 */
+    NULL, /* 647 */
+    NULL, /* 648 */
+    TclUnusedStubEntry, /* 649 */
 };
 
 /* !END!: Do not edit above this line. */

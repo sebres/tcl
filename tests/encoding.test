@@ -1,12 +1,12 @@
 # This file contains a collection of tests for tclEncoding.c
-# Sourcing this file into Tcl runs the tests and generates output for
-# errors.  No output means no errors were found.
+# Sourcing this file into Tcl runs the tests and generates output for errors.
+# No output means no errors were found.
 #
 # Copyright (c) 1997 Sun Microsystems, Inc.
 # Copyright (c) 1998-1999 by Scriptics Corporation.
 #
-# See the file "license.terms" for information on usage and redistribution
-# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+# See the file "license.terms" for information on usage and redistribution of
+# this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
 package require tcltest 2
 
@@ -31,7 +31,8 @@ proc runtests {} {
 # Some tests require the testencoding command
 testConstraint testencoding [llength [info commands testencoding]]
 testConstraint exec [llength [info commands exec]]
-
+testConstraint Uesc [expr {"\U0041" eq "A"}]
+
 # TclInitEncodingSubsystem is tested by the rest of this file
 # TclFinalizeEncodingSubsystem is not currently tested
 
@@ -65,11 +66,11 @@ test encoding-2.2 {Tcl_FreeEncoding: refcount != 0} {testencoding} {
     set path [encoding dirs]
     encoding system shiftjis		;# incr ref count
     encoding dirs [list [pwd]]
-    set x [encoding convertto shiftjis \u4e4e]	;# old one found   
-    encoding system identity
+    set x [encoding convertto shiftjis \u4E4E]	;# old one found
+    encoding system iso8859-1
     llength shiftjis
     lappend x [catch {encoding convertto shiftjis \u4e4e} msg] $msg
-    encoding system identity
+    encoding system iso8859-1
     encoding dirs $path
     encoding system $system
     set x
@@ -121,7 +122,7 @@ test encoding-5.1 {Tcl_SetSystemEncoding} {
     set old [encoding system]
     encoding system jis0208
     set x [encoding convertto \u4e4e]
-    encoding system identity
+    encoding system iso8859-1
     encoding system $old
     set x
 } {8C}
@@ -169,7 +170,7 @@ test encoding-8.1 {Tcl_ExternalToUtf} {
     puts -nonewline $f "ab\x8c\xc1g"
     close $f
     set f [open [file join [temporaryDirectory] dummy] r]
-    fconfigure $f -translation binary -encoding shiftjis    
+    fconfigure $f -translation binary -encoding shiftjis
     set x [read $f]
     close $f
     file delete [file join [temporaryDirectory] dummy]
@@ -221,7 +222,7 @@ test encoding-11.1 {LoadEncodingFile: unknown encoding} {testencoding} {
     set path [encoding dirs]
     encoding system iso8859-1
     encoding dirs {}
-    llength jis0208
+    llength jis0208	;# Shimmer any cached Tcl_Encoding in shared literal
     set x [list [catch {encoding convertto jis0208 \u4e4e} msg] $msg]
     encoding dirs $path
     encoding system $system
@@ -245,13 +246,13 @@ test encoding-11.5.1 {LoadEncodingFile: escape file} {
 test encoding-11.6 {LoadEncodingFile: invalid file} {testencoding} {
     set system [encoding system]
     set path [encoding dirs]
-    encoding system identity
+    encoding system iso8859-1
     cd [temporaryDirectory]
     encoding dirs [file join tmp encoding]
     makeDirectory tmp
     makeDirectory [file join tmp encoding]
     set f [open [file join tmp encoding splat.enc] w]
-    fconfigure $f -translation binary 
+    fconfigure $f -translation binary
     puts $f "abcdefghijklmnop"
     close $f
     set x [list [catch {encoding convertto splat \u4e4e} msg] $msg]
@@ -267,16 +268,16 @@ test encoding-11.6 {LoadEncodingFile: invalid file} {testencoding} {
 # OpenEncodingFile is fully tested by the rest of the tests in this file.
 
 test encoding-12.1 {LoadTableEncoding: normal encoding} {
-    set x [encoding convertto iso8859-3 \u120]
-    append x [encoding convertto iso8859-3 \ud5]
-    append x [encoding convertfrom iso8859-3 \xd5]
+    set x [encoding convertto iso8859-3 \u0120]
+    append x [encoding convertto iso8859-3 \xD5]
+    append x [encoding convertfrom iso8859-3 \xD5]
 } "\xd5?\u120"
 test encoding-12.2 {LoadTableEncoding: single-byte encoding} {
-    set x [encoding convertto iso8859-3 ab\u0120g] 
-    append x [encoding convertfrom iso8859-3 ab\xd5g]
+    set x [encoding convertto iso8859-3 ab\u0120g]
+    append x [encoding convertfrom iso8859-3 ab\xD5g]
 } "ab\xd5gab\u120g"
 test encoding-12.3 {LoadTableEncoding: multi-byte encoding} {
-    set x [encoding convertto shiftjis ab\u4e4eg] 
+    set x [encoding convertto shiftjis ab\u4E4Eg]
     append x [encoding convertfrom shiftjis ab\x8c\xc1g]
 } "ab\x8c\xc1gab\u4e4eg"
 test encoding-12.4 {LoadTableEncoding: double-byte encoding} {
@@ -288,6 +289,9 @@ test encoding-12.5 {LoadTableEncoding: symbol encoding} {
     append x [encoding convertto symbol \u67]
     append x [encoding convertfrom symbol \x67]
 } "\x67\x67\u3b3"
+test encoding-12.6 {LoadTableEncoding: overflow in char value} Uesc {
+    encoding convertto iso8859-3 \U010000
+} "?"
 
 test encoding-13.1 {LoadEscapeTable} {
     viewable [set x [encoding convertto iso2022 ab\u4e4e\u68d9g]]
@@ -304,17 +308,22 @@ test encoding-15.1 {UtfToUtfProc} {
 test encoding-15.2 {UtfToUtfProc null character output} {
     set x \u0000
     set y [encoding convertto utf-8 \u0000]
-    set y [encoding convertfrom identity $y]
+    set y [bytestring $y]
     binary scan $y H* z
     list [string bytelength $x] [string bytelength $y] $z
 } {2 1 00}
 
 test encoding-15.3 {UtfToUtfProc null character input} {
-    set x [encoding convertfrom identity \x00]
+    set x [bytestring \x00]
     set y [encoding convertfrom utf-8 $x]
     binary scan [encoding convertto identity $y] H* z
     list [string bytelength $x] [string bytelength $y] $z
 } {1 2 c080}
+test encoding-15.16 {UtfToUtfProc: Invalid 4-byte UTF-8, see [ed29806ba]} {
+    set x \xF0\xA0\xA1\xC2
+    set y [encoding convertfrom utf-8 \xF0\xA0\xA1\xC2]
+    list [string length $x] $y
+} "4 \xF0\xA0\xA1\xC2"
 
 test encoding-16.1 {UnicodeToUtfProc} {
     set val [encoding convertfrom unicode NN]
@@ -439,6 +448,31 @@ test encoding-24.3 {EscapeFreeProc on open channels} {stdio} {
     list $count [viewable $line]
 } [list 3 "\u4e4e\u4e5e\u4e5f (\\u4e4e\\u4e5e\\u4e5f)"]
 
+test encoding-24.4 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xc0\x80"]
+} 1
+test encoding-24.5 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xc0\x81"]
+} 2
+test encoding-24.6 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xc1\xbf"]
+} 2
+test encoding-24.7 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xc2\x80"]
+} 1
+test encoding-24.8 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xe0\x80\x80"]
+} 3
+test encoding-24.9 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xe0\x9f\xbf"]
+} 3
+test encoding-24.10 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xe0\xa0\x80"]
+} 1
+test encoding-24.11 {Parse valid or invalid utf-8} {
+    string length [encoding convertfrom utf-8 "\xef\xbf\xbf"]
+} 1
+
 file delete [file join [temporaryDirectory] iso2022.txt]
 
 #
@@ -552,7 +586,7 @@ foreach from {cp932 shiftjis euc-jp iso2022-jp} {
 	    puts -nonewline $out [read $f]
 	    close $out
 	    close $f
-	    
+
 	    # then compare $to.chars <=> $from.to.tcltestout as binary.
 	    set fa [open $to.chars]
 	    fconfigure $fa -encoding binary
@@ -561,7 +595,7 @@ foreach from {cp932 shiftjis euc-jp iso2022-jp} {
 	    set diff [channel-diff $fa $fb]
 	    close $fa
 	    close $fb
-	    
+
 	    # Difference should be empty.
 	    set diff
 	} {}
@@ -571,7 +605,7 @@ foreach from {cp932 shiftjis euc-jp iso2022-jp} {
 testConstraint testgetdefenc [llength [info commands testgetdefenc]]
 
 test encoding-26.0 {Tcl_GetDefaultEncodingDir} -constraints {
-    testgetdefenc 
+    testgetdefenc
 } -setup {
      set origDir [testgetdefenc]
      testsetdefenc slappy

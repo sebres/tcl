@@ -189,7 +189,7 @@ static Tcl_ThreadDataKey pendingObjDataKey;
 	    mp_shrink(&(bignum)); \
 	} \
 	(objPtr)->internalRep.ptrAndLongRep.ptr = (void*) (bignum).dp; \
-	(objPtr)->internalRep.ptrAndLongRep.value = ( ((bignum).sign << 30) \
+	(objPtr)->internalRep.ptrAndLongRep.value = ( (mp_isneg(&bignum) << 30) \
 		| ((bignum).alloc << 15) | ((bignum).used)); \
     }
 
@@ -2778,8 +2778,8 @@ Tcl_GetLongFromObj(
 	    mp_int big;
 
 	    UNPACK_BIGNUM(objPtr, big);
-	    if ((size_t)(big.used) <= (CHAR_BIT * sizeof(long) + DIGIT_BIT - 1)
-		    / DIGIT_BIT) {
+	    if ((size_t)(big.used) <= (CHAR_BIT * sizeof(long) + MP_DIGIT_BIT - 1)
+		    / MP_DIGIT_BIT) {
 		unsigned long value = 0, numBytes = sizeof(long);
 		long scratch;
 		unsigned char *bytes = (unsigned char *)&scratch;
@@ -2787,7 +2787,7 @@ Tcl_GetLongFromObj(
 		    while (numBytes-- > 0) {
 			value = (value << CHAR_BIT) | *bytes++;
 		    }
-		    if (big.sign) {
+		    if (mp_isneg(&big)) {
 			*longPtr = - (long) value;
 		    } else {
 			*longPtr = (long) value;
@@ -3079,7 +3079,7 @@ Tcl_GetWideIntFromObj(
 
 	    UNPACK_BIGNUM(objPtr, big);
 	    if ((size_t)(big.used) <= (CHAR_BIT * sizeof(Tcl_WideInt)
-		     + DIGIT_BIT - 1) / DIGIT_BIT) {
+		     + MP_DIGIT_BIT - 1) / MP_DIGIT_BIT) {
 		Tcl_WideUInt value = 0;
 		unsigned long numBytes = sizeof(Tcl_WideInt);
 		Tcl_WideInt scratch;
@@ -3089,7 +3089,7 @@ Tcl_GetWideIntFromObj(
 		    while (numBytes-- > 0) {
 			value = (value << CHAR_BIT) | *bytes++;
 		    }
-		    if (big.sign) {
+		    if (mp_isneg(&big)) {
 			*wideIntPtr = - (Tcl_WideInt) value;
 		    } else {
 			*wideIntPtr = (Tcl_WideInt) value;
@@ -3498,7 +3498,7 @@ Tcl_SetBignumObj(
 	Tcl_Panic("%s called with shared object", "Tcl_SetBignumObj");
     }
     if ((size_t)(bignumValue->used)
-	    <= (CHAR_BIT * sizeof(long) + DIGIT_BIT - 1) / DIGIT_BIT) {
+	    <= (CHAR_BIT * sizeof(long) + MP_DIGIT_BIT - 1) / MP_DIGIT_BIT) {
 	unsigned long value = 0, numBytes = sizeof(long);
 	long scratch;
 	unsigned char *bytes = (unsigned char *)&scratch;
@@ -3508,10 +3508,10 @@ Tcl_SetBignumObj(
 	while (numBytes-- > 0) {
 	    value = (value << CHAR_BIT) | *bytes++;
 	}
-	if (value > (((~(unsigned long)0) >> 1) + bignumValue->sign)) {
+	if (value > (((~(unsigned long)0) >> 1) + mp_isneg(bignumValue))) {
 	    goto tooLargeForLong;
 	}
-	if (bignumValue->sign) {
+	if (mp_isneg(bignumValue)) {
 	    TclSetLongObj(objPtr, -(long)value);
 	} else {
 	    TclSetLongObj(objPtr, (long)value);
@@ -3522,7 +3522,7 @@ Tcl_SetBignumObj(
   tooLargeForLong:
 #ifndef NO_WIDE_TYPE
     if ((size_t)(bignumValue->used)
-	    <= (CHAR_BIT * sizeof(Tcl_WideInt) + DIGIT_BIT - 1) / DIGIT_BIT) {
+	    <= (CHAR_BIT * sizeof(Tcl_WideInt) + MP_DIGIT_BIT - 1) / MP_DIGIT_BIT) {
 	Tcl_WideUInt value = 0;
 	unsigned long numBytes = sizeof(Tcl_WideInt);
 	Tcl_WideInt scratch;
@@ -3533,10 +3533,10 @@ Tcl_SetBignumObj(
 	while (numBytes-- > 0) {
 	    value = (value << CHAR_BIT) | *bytes++;
 	}
-	if (value > (((~(Tcl_WideUInt)0) >> 1) + bignumValue->sign)) {
+	if (value > (((~(Tcl_WideUInt)0) >> 1) + mp_isneg(bignumValue))) {
 	    goto tooLargeForWide;
 	}
-	if (bignumValue->sign) {
+	if (mp_isneg(bignumValue)) {
 	    TclSetWideIntObj(objPtr, -(Tcl_WideInt)value);
 	} else {
 	    TclSetWideIntObj(objPtr, (Tcl_WideInt)value);
@@ -3921,11 +3921,10 @@ TclCompareObjKeys(
 
     /*
      * If the object pointers are the same then they match.
-     */
+     * OPT: this comparison was moved to the caller
 
-    if (objPtr1 == objPtr2) {
-	return 1;
-    }
+       if (objPtr1 == objPtr2) return 1;
+    */
 
     /*
      * Don't use Tcl_GetStringFromObj as it would prevent l1 and l2 being

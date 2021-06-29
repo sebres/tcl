@@ -11,7 +11,7 @@
 package require Tcl 8.4
 # Keep this in sync with pkgIndex.tcl and with the install directories in
 # Makefiles
-package provide http 2.7.14
+package provide http 2.7.15
 
 namespace eval http {
     # Allow resourcing to not clobber existing data
@@ -1181,7 +1181,7 @@ proc http::IsBinaryContentType {type} {
     # and so on.
     if {$major eq "application"} {
 	set minor [string trimright $minor]
-	if {$minor in {"xml" "xml-external-parsed-entity" "xml-dtd"}} {
+	if {$minor in {"json" "xml" "xml-external-parsed-entity" "xml-dtd"}} {
 	    return false
 	}
     }
@@ -1286,7 +1286,7 @@ proc http::Eof {token {force 0}} {
 
     if {($state(coding) eq "gzip") && [string length $state(body)] > 0} {
         if {[catch {
-	    if {[package vsatisfies [package present Tcl] 8.6]} {
+	    if {[package vsatisfies [package provide Tcl] 8.6]} {
 		# The zlib integration into 8.6 includes proper gzip support
 		set state(body) [zlib gunzip $state(body)]
 	    } else {

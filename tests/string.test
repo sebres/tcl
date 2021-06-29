@@ -213,11 +213,29 @@ test string-4.14 {string first, negative start index} {
 } 1
 test string-4.15 {string first, ability to two-byte encoded utf-8 chars} {
     # Test for a bug in Tcl 8.3 where test for all-single-byte-encoded
-    # strings was incorrect, leading to an index returned by [string first] 
+    # strings was incorrect, leading to an index returned by [string first]
     # which pointed past the end of the string.
     set uchar \u057e    ;# character with two-byte encoding in utf-8
     string first % %#$uchar$uchar#$uchar$uchar#% 3
 } 8
+test string-4.17 {string first, corner case} {
+    string first a aaa 4294967295
+} {0}
+test string-4.18 {string first, corner case} {
+    string first a aaa -1
+} {0}
+test string-4.19 {string first, corner case} {
+    string first a aaa end-5
+} {0}
+test string-4.20 {string last, corner case} {
+    string last a aaa 4294967295
+} {-1}
+test string-4.21 {string last, corner case} {
+    string last a aaa -1
+} {-1}
+test string-4.22 {string last, corner case} {
+    string last a aaa end-5
+} {-1}
 
 test string-5.1 {string index} {
     list [catch {string index} msg] $msg
@@ -415,7 +433,7 @@ test string-6.37 {string is double, false on int overflow} -setup {
 } -result {1 priorValue}
 # string-6.38 removed, underflow on input is no longer an error.
 test string-6.39 {string is double, false} {
-    # This test is non-portable because IRIX thinks 
+    # This test is non-portable because IRIX thinks
     # that .e1 is a valid double - this is really a bug
     # on IRIX as .e1 should NOT be a valid double
     #
@@ -1111,6 +1129,9 @@ test string-11.54 {string match, failure} {
 	    [string match *a*l*\u0000*cba* $longString] \
 	    [string match *===* $longString]
 } {0 1 1 1 0 0}
+test string-11.55 {string match, invalid binary optimization} {
+    [format string] match \u0141 [binary format c 65]
+} 0
 
 test string-12.1 {string range} {
     list [catch {string range} msg] $msg
@@ -1291,6 +1312,12 @@ test string-14.16 {string replace} {
 test string-14.17 {string replace} {
     string replace abcdefghijklmnop end end-1
 } {abcdefghijklmnop}
+test string-14.18 {string replace} {
+    string replace abcdefghijklmnop 10 9 XXX
+} {abcdefghijklmnop}
+test string-14.19 {string replace} {
+    string replace {} -1 0 A
+} A
 
 test string-15.1 {string tolower too few args} {
     list [catch {string tolower} msg] $msg
@@ -1432,6 +1459,37 @@ test string-20.4 {string trimright} {
 test string-20.5 {string trimright} {
     string trimright ""
 } {}
+test string-20.6 {string trimright, unicode default} {
+    # Reserve test number for Tcl 8.6 (TIP 413)
+} {}
+test string-20.7 {string trim on not valid utf-8 sequence (consider NTS as continuation char), bug [c61818e4c9]} {
+    set result {}
+    set a [bytestring \xc0\x80\xA0]
+    set b foo$a
+    set m [list \u0000 U \xA0 V [bytestring \xA0] W]
+    lappend result [string map $m $b]
+    lappend result [string map $m [string trimright $b x]]
+    lappend result [string map $m [string trimright $b \u0000]]
+    lappend result [string map $m [string trimleft $b fox]]
+    lappend result [string map $m [string trimleft $b fo\u0000]]
+    lappend result [string map $m [string trim $b fox]]
+    lappend result [string map $m [string trim $b fo\u0000]]
+} [list {*}[lrepeat 3 fooUV] {*}[lrepeat 2 UV V]]
+test string-20.8 {[c61818e4c9] [string trimright] fails when UtfPrev is ok} {
+    set result {}
+    set a [bytestring \xE8\xA0]
+    set b foo$a
+    set m [list \xE8 U \xA0 V [bytestring \xE8] W [bytestring \xA0] X]]
+    lappend result [string map $m $b]
+    lappend result [string map $m [string trimright $b x]]
+    lappend result [string map $m [string trimright $b \xE8]]
+    lappend result [string map $m [string trimright $b [bytestring \xE8]]]
+    lappend result [string map $m [string trimright $b \xA0]]
+    lappend result [string map $m [string trimright $b [bytestring \xA0]]]
+    lappend result [string map $m [string trimright $b \xE8\xA0]]
+    lappend result [string map $m [string trimright $b [bytestring \xE8\xA0]]]
+    lappend result [string map $m [string trimright $b \u0000]]
+} [list {*}[lrepeat 4 fooUV] {*}[lrepeat 2 fooU] {*}[lrepeat 2 foo] fooUV]
 
 test string-21.1 {string wordend} {
     list [catch {string wordend a} msg] $msg
@@ -1515,6 +1573,11 @@ test string-22.12 {string wordstart, unicode} {
 test string-22.13 {string wordstart, unicode} {
     string wordstart "\uc700\uc700 abc" 8
 } 3
+test string-22.14 {string wordstart, invalid UTF-8} {
+    # See Bug c61818e4c9
+    set demo [bytestring "abc def\xE0\xA9ghi"]
+    string index $demo [string wordstart $demo 10]
+} g
 
 test string-23.0 {string is boolean, Bug 1187123} testindexobj {
     set x 5

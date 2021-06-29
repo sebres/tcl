@@ -93,8 +93,12 @@ AC_DEFUN([SC_PATH_TCLCONFIG], [
 			`ls -d ${prefix}/lib 2>/dev/null` \
 			`ls -d /usr/local/lib 2>/dev/null` \
 			`ls -d /usr/contrib/lib 2>/dev/null` \
+			`ls -d /usr/pkg/lib 2>/dev/null` \
+			`ls -d /usr/lib/tcl8.5 2>/dev/null` \
 			`ls -d /usr/lib 2>/dev/null` \
 			`ls -d /usr/lib64 2>/dev/null` \
+			`ls -d /usr/local/lib/tcl8.5 2>/dev/null` \
+			`ls -d /usr/local/lib/tcl/tcl8.5 2>/dev/null` \
 			; do
 		    if test -f "$i/tclConfig.sh" ; then
 			ac_cv_c_tclconfig="`(cd $i; pwd)`"
@@ -223,8 +227,12 @@ AC_DEFUN([SC_PATH_TKCONFIG], [
 			`ls -d ${prefix}/lib 2>/dev/null` \
 			`ls -d /usr/local/lib 2>/dev/null` \
 			`ls -d /usr/contrib/lib 2>/dev/null` \
+			`ls -d /usr/pkg/lib 2>/dev/null` \
+			`ls -d /usr/lib/tk8.5 2>/dev/null` \
 			`ls -d /usr/lib 2>/dev/null` \
 			`ls -d /usr/lib64 2>/dev/null` \
+			`ls -d /usr/local/lib/tk8.5 2>/dev/null` \
+			`ls -d /usr/local/lib/tcl/tk8.5 2>/dev/null` \
 			; do
 		    if test -f "$i/tkConfig.sh" ; then
 			ac_cv_c_tkconfig="`(cd $i; pwd)`"
@@ -1081,6 +1089,9 @@ AC_DEFUN([SC_CONFIG_SYSTEM], [
 		if test "`uname -s`" = "AIX" ; then
 		    tcl_cv_sys_version=AIX-`uname -v`.`uname -r`
 		fi
+		if test "`uname -s`" = "NetBSD" -a -f /etc/debian_version ; then
+		    tcl_cv_sys_version=NetBSD-Debian
+		fi
 	    fi
 	fi
     ])
@@ -1253,7 +1264,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
     CFLAGS_DEBUG=-g
     CFLAGS_OPTIMIZE=-O
     AS_IF([test "$GCC" = yes], [
-	CFLAGS_WARNING="-Wall"
+	CFLAGS_WARNING="-Wall -Wpointer-arith"
     ], [CFLAGS_WARNING=""])
     AC_CHECK_TOOL(AR, ar)
     STLIB_LD='${AR} cr'
@@ -1618,7 +1629,6 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 		# Step 4 will set the necessary variables
 		DL_OBJS=""
 		SHLIB_LD_LIBS=""
-		LDFLAGS=""
 		;;
 	    *)
 		case "$arch" in
@@ -1637,7 +1647,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 		    CC_SEARCH_FLAGS='-Wl,-rpath,${LIB_RUNTIME_DIR}'])
 		LD_SEARCH_FLAGS=${CC_SEARCH_FLAGS}
 		SHARED_LIB_SUFFIX='${TCL_TRIM_DOTS}.so.${SHLIB_VERSION}'
-		LDFLAGS="-Wl,-export-dynamic"
+		LDFLAGS="$LDFLAGS -Wl,-export-dynamic"
 		;;
 	    esac
 	    case "$arch" in
@@ -1679,7 +1689,7 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	    	LDFLAGS="$LDFLAGS -pthread"
 	    ])
 	    ;;
-	FreeBSD-*)
+	DragonFly-*|FreeBSD-*)
 	    # This configuration from FreeBSD Ports.
 	    SHLIB_CFLAGS="-fPIC"
 	    SHLIB_LD="${CC} -shared"
@@ -1687,7 +1697,6 @@ AC_DEFUN([SC_CONFIG_CFLAGS], [
 	    SHLIB_SUFFIX=".so"
 	    DL_OBJS="tclLoadDl.o"
 	    DL_LIBS=""
-	    LDFLAGS=""
 	    AS_IF([test $doRpath = yes], [
 		CC_SEARCH_FLAGS='-Wl,-rpath,${LIB_RUNTIME_DIR}'
 		LD_SEARCH_FLAGS='-Wl,-rpath,${LIB_RUNTIME_DIR}'])
@@ -2175,7 +2184,7 @@ dnl # preprocessing tests use only CPPFLAGS.
 	    BSD/OS*) ;;
 	    CYGWIN_*|MINGW32_*) ;;
 	    IRIX*) ;;
-	    NetBSD-*|FreeBSD-*|OpenBSD-*) ;;
+	    NetBSD-*|DragonFly-*|FreeBSD-*|OpenBSD-*) ;;
 	    Darwin-*) ;;
 	    SCO_SV-3.2*) ;;
 	    *) SHLIB_CFLAGS="-fPIC" ;;
@@ -2709,6 +2718,7 @@ AC_DEFUN([SC_BUGGY_STRTOD], [
     if test "$tcl_strtod" = 1; then
 	AC_CACHE_CHECK([for Solaris2.4/Tru64 strtod bugs], tcl_cv_strtod_buggy,[
 	    AC_TRY_RUN([
+		#include <stdlib.h>
 		extern double strtod();
 		int main() {
 		    char *infString="Inf", *nanString="NaN", *spaceString=" ";
@@ -2871,7 +2881,7 @@ AC_DEFUN([SC_TCL_EARLY_FLAGS],[
 #	Might define the following vars:
 #		TCL_WIDE_INT_IS_LONG
 #		TCL_WIDE_INT_TYPE
-#		HAVE_STRUCT_DIRENT64
+#		HAVE_STRUCT_DIRENT64, HAVE_DIR64
 #		HAVE_STRUCT_STAT64
 #		HAVE_TYPE_OFF64_T
 #
@@ -2905,6 +2915,15 @@ AC_DEFUN([SC_TCL_64BIT_FLAGS], [
 		tcl_cv_struct_dirent64=yes,tcl_cv_struct_dirent64=no)])
 	if test "x${tcl_cv_struct_dirent64}" = "xyes" ; then
 	    AC_DEFINE(HAVE_STRUCT_DIRENT64, 1, [Is 'struct dirent64' in <sys/types.h>?])
+	fi
+
+	AC_CACHE_CHECK([for DIR64], tcl_cv_DIR64,[
+	    AC_TRY_COMPILE([#include <sys/types.h>
+#include <dirent.h>],[struct dirent64 *p; DIR64 d = opendir64(".");
+            p = readdir64(d); rewinddir64(d); closedir64(d);],
+		tcl_cv_DIR64=yes,tcl_cv_DIR64=no)])
+	if test "x${tcl_cv_DIR64}" = "xyes" ; then
+	    AC_DEFINE(HAVE_DIR64, 1, [Is 'DIR64' in <sys/types.h>?])
 	fi
 
 	AC_CACHE_CHECK([for struct stat64], tcl_cv_struct_stat64,[
@@ -2986,7 +3005,10 @@ AC_DEFUN([SC_TCL_CHECK_BROKEN_FUNC],[
     AC_CHECK_FUNC($1, tcl_ok=1, tcl_ok=0)
     if test ["$tcl_ok"] = 1; then
 	AC_CACHE_CHECK([proper ]$1[ implementation], [tcl_cv_]$1[_unbroken],
-	    AC_TRY_RUN([[int main() {]$2[}]],[tcl_cv_]$1[_unbroken]=ok,
+	    AC_TRY_RUN([[
+#include <stdlib.h>
+#include <string.h>
+int main() {]$2[}]],[tcl_cv_]$1[_unbroken]=ok,
 		[tcl_cv_]$1[_unbroken]=broken,[tcl_cv_]$1[_unbroken]=unknown))
 	if test ["$tcl_cv_]$1[_unbroken"] = "ok"; then
 	    tcl_ok=1
@@ -3017,7 +3039,20 @@ AC_DEFUN([SC_TCL_CHECK_BROKEN_FUNC],[
 #
 #--------------------------------------------------------------------
 
-AC_DEFUN([SC_TCL_GETHOSTBYADDR_R], [AC_CHECK_FUNC(gethostbyaddr_r, [
+AC_DEFUN([SC_TCL_GETHOSTBYADDR_R], [
+    # Avoids picking hidden internal symbol from libc
+    SC_TCL_GETHOSTBYADDR_R_DECL
+
+    if test "$tcl_cv_api_gethostbyaddr_r" = yes; then
+	SC_TCL_GETHOSTBYADDR_R_TYPE
+    fi
+])
+
+AC_DEFUN([SC_TCL_GETHOSTBYADDR_R_DECL], [AC_CHECK_DECLS(gethostbyaddr_r, [
+    tcl_cv_api_gethostbyaddr_r=yes],[tcl_cv_api_gethostbyaddr_r=no],[#include <netdb.h>])
+])
+
+AC_DEFUN([SC_TCL_GETHOSTBYADDR_R_TYPE], [AC_CHECK_FUNC(gethostbyaddr_r, [
     AC_CACHE_CHECK([for gethostbyaddr_r with 7 args], tcl_cv_api_gethostbyaddr_r_7, [
     AC_TRY_COMPILE([
 	#include <netdb.h>
@@ -3078,14 +3113,27 @@ AC_DEFUN([SC_TCL_GETHOSTBYADDR_R], [AC_CHECK_FUNC(gethostbyaddr_r, [
 # Results:
 #
 #	Might define the following vars:
-#		HAVE_GETHOSTBYADDR_R
-#		HAVE_GETHOSTBYADDR_R_3
-#		HAVE_GETHOSTBYADDR_R_5
-#		HAVE_GETHOSTBYADDR_R_6
+#		HAVE_GETHOSTBYNAME_R
+#		HAVE_GETHOSTBYNAME_R_3
+#		HAVE_GETHOSTBYNAME_R_5
+#		HAVE_GETHOSTBYNAME_R_6
 #
 #--------------------------------------------------------------------
 
-AC_DEFUN([SC_TCL_GETHOSTBYNAME_R], [AC_CHECK_FUNC(gethostbyname_r, [
+AC_DEFUN([SC_TCL_GETHOSTBYNAME_R], [
+    # Avoids picking hidden internal symbol from libc
+    SC_TCL_GETHOSTBYNAME_R_DECL
+
+    if test "$tcl_cv_api_gethostbyname_r" = yes; then
+	SC_TCL_GETHOSTBYNAME_R_TYPE
+    fi
+])
+
+AC_DEFUN([SC_TCL_GETHOSTBYNAME_R_DECL], [AC_CHECK_DECLS(gethostbyname_r, [
+    tcl_cv_api_gethostbyname_r=yes],[tcl_cv_api_gethostbyname_r=no],[#include <netdb.h>])
+])
+
+AC_DEFUN([SC_TCL_GETHOSTBYNAME_R_TYPE], [AC_CHECK_FUNC(gethostbyname_r, [
     AC_CACHE_CHECK([for gethostbyname_r with 6 args], tcl_cv_api_gethostbyname_r_6, [
     AC_TRY_COMPILE([
 	#include <netdb.h>

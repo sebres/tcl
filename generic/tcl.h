@@ -414,7 +414,7 @@ typedef unsigned TCL_WIDE_INT_TYPE	Tcl_WideUInt;
 #if defined(__WIN32__)
 #   ifdef __BORLANDC__
 	typedef struct stati64 Tcl_StatBuf;
-#   elif defined(_WIN64)
+#   elif defined(_WIN64) || defined(_USE_64BIT_TIME_T)
 	typedef struct __stat64 Tcl_StatBuf;
 #   elif (defined(_MSC_VER) && (_MSC_VER < 1400)) || defined(_USE_32BIT_TIME_T)
 	typedef struct _stati64	Tcl_StatBuf;
@@ -2159,7 +2159,7 @@ typedef struct Tcl_Parse {
  * reflected in regcustom.h.
  */
 
-#if TCL_UTF_MAX > 4
+#if TCL_UTF_MAX > 3
     /*
      * unsigned int isn't 100% accurate as it should be a strict 4-byte value
      * (perhaps wchar_t). 64-bit systems may have troubles. The size of this

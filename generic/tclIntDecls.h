@@ -1056,6 +1056,33 @@ EXTERN void		TclDbDumpActiveObjects(FILE *outFile);
 EXTERN char *		TclDoubleDigits(double dv, int ndigits, int flags,
 				int *decpt, int *signum, char **endPtr);
 #endif
+/* Slot 250 is reserved */
+#ifndef TclRegisterLiteral_TCL_DECLARED
+#define TclRegisterLiteral_TCL_DECLARED
+/* 251 */
+EXTERN int		TclRegisterLiteral(VOID *envPtr, char *bytes,
+				int length, int flags);
+#endif
+/* Slot 252 is reserved */
+/* Slot 253 is reserved */
+/* Slot 254 is reserved */
+/* Slot 255 is reserved */
+/* Slot 256 is reserved */
+#ifndef TclStaticPackage_TCL_DECLARED
+#define TclStaticPackage_TCL_DECLARED
+/* 257 */
+EXTERN void		TclStaticPackage(Tcl_Interp *interp,
+				CONST char *pkgName,
+				Tcl_PackageInitProc *initProc,
+				Tcl_PackageInitProc *safeInitProc);
+#endif
+/* Slot 258 is reserved */
+/* Slot 259 is reserved */
+#ifndef TclUnusedStubEntry_TCL_DECLARED
+#define TclUnusedStubEntry_TCL_DECLARED
+/* 260 */
+EXTERN void		TclUnusedStubEntry(void);
+#endif
 
 typedef struct TclIntStubs {
     int magic;
@@ -1311,6 +1338,17 @@ typedef struct TclIntStubs {
     VOID *reserved247;
     VOID *reserved248;
     char * (*tclDoubleDigits) (double dv, int ndigits, int flags, int *decpt, int *signum, char **endPtr); /* 249 */
+    VOID *reserved250;
+    int (*tclRegisterLiteral) (VOID *envPtr, char *bytes, int length, int flags); /* 251 */
+    VOID *reserved252;
+    VOID *reserved253;
+    VOID *reserved254;
+    VOID *reserved255;
+    VOID *reserved256;
+    void (*tclStaticPackage) (Tcl_Interp *interp, CONST char *pkgName, Tcl_PackageInitProc *initProc, Tcl_PackageInitProc *safeInitProc); /* 257 */
+    VOID *reserved258;
+    VOID *reserved259;
+    void (*tclUnusedStubEntry) (void); /* 260 */
 } TclIntStubs;
 
 extern TclIntStubs *tclIntStubsPtr;
@@ -2039,6 +2077,26 @@ extern TclIntStubs *tclIntStubsPtr;
 #ifndef TclDoubleDigits
 #define TclDoubleDigits \
 	(tclIntStubsPtr->tclDoubleDigits) /* 249 */
+#endif
+/* Slot 250 is reserved */
+#ifndef TclRegisterLiteral
+#define TclRegisterLiteral \
+	(tclIntStubsPtr->tclRegisterLiteral) /* 251 */
+#endif
+/* Slot 252 is reserved */
+/* Slot 253 is reserved */
+/* Slot 254 is reserved */
+/* Slot 255 is reserved */
+/* Slot 256 is reserved */
+#ifndef TclStaticPackage
+#define TclStaticPackage \
+	(tclIntStubsPtr->tclStaticPackage) /* 257 */
+#endif
+/* Slot 258 is reserved */
+/* Slot 259 is reserved */
+#ifndef TclUnusedStubEntry
+#define TclUnusedStubEntry \
+	(tclIntStubsPtr->tclUnusedStubEntry) /* 260 */
 #endif
 
 #endif /* defined(USE_TCL_STUBS) && !defined(USE_TCL_STUB_PROCS) */

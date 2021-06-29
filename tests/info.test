@@ -773,16 +773,16 @@ test info-22.8 {info frame, basic trace} -constraints {!singleTestInterp} -match
 
 
 ## The line 1967 is off by 5 from the true value of 1972. This is a knownBug, see testcase 30.0
-test info-23.0 {eval'd info frame} {!singleTestInterp} {
-    eval {info frame}
-} 8
-test info-23.1 {eval'd info frame, semi-dynamic} {!singleTestInterp} {
-    eval info frame
-} 8
-test info-23.2 {eval'd info frame, dynamic} {!singleTestInterp} {
-    set script {info frame}
-    eval $script
-} 8
+test info-23.0 {eval'd info frame} -constraints {!singleTestInterp} -body {
+    list [i eval {info frame}] [i eval {eval {info frame}}]
+} -setup {interp create i} -cleanup {interp delete i} -result {1 2}
+test info-23.1 {eval'd info frame, semi-dynamic} -constraints {!singleTestInterp} -body {
+    i eval {eval info frame}
+} -setup {interp create i} -cleanup {interp delete i} -result 2
+test info-23.2 {eval'd info frame, dynamic} -constraints {!singleTestInterp} -body {
+    i eval {	set script {info frame}
+		eval $script}
+} -setup {interp create i} -cleanup {interp delete i} -result 2
 test info-23.3 {eval'd info frame, literal} -match glob -body {
     eval {
 	info frame 0
@@ -1818,7 +1818,7 @@ test info-38.2 {location information for uplevel, dl, direct-literal} -match glo
 * {type source line 1814 file info.test cmd etrace level 1}
 * {type source line 1812 file info.test cmd uplevel\\ \\\\ level 1}} -cleanup {interp delete sub}
 
-test info-39.0 {Bug 4b61afd660} -setup {
+test info-39.2 {Bug 4b61afd660} -setup {
     proc probe {} {
 	return [dict get [info frame -1] line]
     }

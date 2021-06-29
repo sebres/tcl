@@ -21,6 +21,17 @@ testConstraint testlink [llength [info commands testlink]]
 foreach i {int real bool string} {
     catch {unset $i}
 }
+
+test link-0.1 {leak test} {testlink} {
+    interp create i
+    load {} Tcltest i
+    i eval {
+	testlink create 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+	namespace delete ::
+    }
+    interp delete i
+} {}
+
 test link-1.1 {reading C variables from Tcl} {testlink} {
     testlink delete
     testlink set 43 1.23 4 - 12341234 64 250 30000 60000 0xbeefbabe 12321 32123 3.25 1231231234
@@ -141,7 +152,7 @@ test link-2.8 {writing C variables from Tcl} -constraints {testlink} -setup {
     set uwide "0O"
     concat [testlink get] | $int $real $bool $string $wide $char $uchar $short $ushort $uint $long $ulong $float $uwide
 } -result {0 0.0 0 0 0 0 0 0 0 0 0 0 0.0 0 | 0x 0b 0 0 0O 0X 0B 0O 0x 0b 0o 0X 0B 0O}
-test link-2.8 {writing C variables from Tcl} -constraints {testlink} -setup {
+test link-2.9 {writing C variables from Tcl} -constraints {testlink} -setup {
     testlink delete
 } -body {
     testlink set 43 1.21 4 - 56785678 64 250 30000 60000 0xbaadbeef 12321 32123 3.25 1231231234
