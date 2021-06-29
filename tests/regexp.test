@@ -160,6 +160,22 @@ test regexp-3.7 {getting substrings back from regexp} {
     set foo 1; set f2 1; set f3 1; set f4 1
     list [regexp -indices (a)(b)?(c) xacy foo f2 f3 f4] $foo $f2 $f3 $f4
 } {1 {1 2} {1 1} {-1 -1} {2 2}}
+test regexp-3.8m {getting substrings back from regexp (multi-byte utf capability)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -indices {(\w)(b)?([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {1 2} {1 1} {-1 -1} {2 2}}
+test regexp-3.8m2 {getting substrings back from regexp (multi-byte utf capability)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 2 -indices {(\w)(b)?([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {3 4} {3 3} {-1 -1} {4 4}}
+test regexp-3.8m3 {getting substrings back from regexp (multi-byte utf capability, start/indices)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 3 -indices {([[:upper:]])(b)?(\w)} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {4 5} {4 4} {-1 -1} {5 5}}
+test regexp-3.8m4 {getting substrings back from regexp (multi-byte utf capability, start)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 3 {([[:upper:]])(b)?(\w)} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} [list 1 \xdc\xfc \xdc {} \xfc]
 
 test regexp-4.1 {-nocase option to regexp} {
     regexp -nocase foo abcFOo
@@ -309,6 +325,15 @@ test regexp-7.17 {regsub utf compliance} {
     regsub a\u4e4eb xyza\u4e4ebijka\u4e4ebpqr 555 bar
     list [string compare $foo $bar] [regexp 4 $bar]
 } {0 0}
+test regexp-7.17m {regsub multi-byte utf capability} {
+    regsub {(..)(\w)(.)(\w)(..)} a\xe4\xc4\xe4\xdc\xfcz {\1-\2-\3-\4-\5}
+} "a\xe4-\xc4-\xe4-\xdc-\xfcz"
+test regexp-7.18m {regsub multi-byte utf capability} {
+    regsub -all {\w{2}(?=\w)} a\xe4\xc4\xe4\xdc\xfcz {\0-}
+} "a\xe4-\xc4\xe4-\xdc\xfc-z"
+test regexp-7.18m2 {regsub multi-byte utf capability} {
+    regsub -all -start 2 {\w{2}(?=\w)} a\xe4\xc4\xe4\xdc\xfcz {\0-}
+} "a\xe4\xc4\xe4-\xdc\xfc-z"
 
 test regexp-8.1 {case conversion in regsub} {
     list [regsub -nocase a(a+) xaAAaAAay & foo] $foo
@@ -571,6 +596,18 @@ test regexp-17.2 {regexp -inline} {
 test regexp-17.3 {regexp -inline -indices} {
     regexp -inline -indices (b) ababa
 } {{1 1} {1 1}}
+test regexp-17.3m {regexp -indices (multi-byte utf capability)} {
+    regexp -inline -indices {..(\w).(\w)..} a\xe4\xc4\xe4\xdc\xfcz
+} {{0 6} {2 2} {4 4}}
+test regexp-17.3m2 {regexp -indices -start (multi-byte utf capability)} {
+    regexp -start 2 -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz
+} {{3 4} {3 3} {4 4}}
+test regexp-17.3m3 {regexp -indices -all (multi-byte utf capability)} {
+    regexp -all -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz
+} {{1 2} {1 1} {2 2} {3 4} {3 3} {4 4}}
+test regexp-17.3m4 {regexp -indices -all -start (multi-byte utf capability)} {
+    regexp -all -start 2 -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfc\xc4\xe4z
+} {{3 4} {3 3} {4 4} {5 6} {5 5} {6 6}}
 test regexp-17.4 {regexp -inline} {
     regexp -inline {\w(\d+)\w} "   hello 23 there456def "
 } {e456d 456}
