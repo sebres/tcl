@@ -1190,7 +1190,8 @@ CompileRegexp(
 	 * Convert from Tcl classic to PCRE cflags
 	 */
 
-	/* XXX Should enable PCRE_UTF8 selectively on non-ByteArray Tcl_Obj */
+	/* XXX Should enable PCRE_UTF8 selectively on non-ByteArray Tcl_Obj 
+	 * TODO: parse of bytearray doesn't expect PCRE_UTF8 here */
 	pcrecflags = PCRE_UTF8 | PCRE_UCP | PCRE_NO_UTF8_CHECK |
 		PCRE_DOLLAR_ENDONLY;
 	/*
@@ -1699,26 +1700,49 @@ TclRegexpPCRE(
 {
 #ifdef HAVE_PCRE
     int i, match, eflags, pcrecflags = 0, stringLength, matchelems, *offsets,
-	offsetDiff, numMatches = 0;
+	offsetDiff, offsetC = offset, numMatches = 0, utfstr;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
     pcre *re;
     pcre_extra *study;
     TclRegexp *regexpPtr = (TclRegexp *) regExpr;
     TclRegexpStorage *reStorage = regexpPtr->reStorage;
+    struct {
+	int coffs; /* last known offset in bytes */
+	int boffs; /* last known offset in chars */
+    } mb[2] = {{0, 0}, {0, 0}};
 
     objPtr = objv[1];
+    utfstr = (objPtr->typePtr != &tclByteArrayType);
     /*
      * Get match string and translate offset into correct placement for utf-8 chars.
      */
-    if (objPtr->typePtr == &tclByteArrayType) {
-	matchstr = (const char *)Tcl_GetByteArrayFromObj(objPtr, &stringLength);
-	if (offset && offset < stringLength) {
-	    /* XXX: probably needs length restriction */
-	    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
+    if (utfstr) {
+	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
+	/* OFFS_CHAR2BYTE: convert offset in chars to offset in bytes */
+	if (offset > 0) {
+	    Tcl_UniChar ch;
+	    const char *src = matchstr, *srcend = matchstr + stringLength;
+
+	    
+	    mb[0].coffs = offset;
+	    /* Tcl_UtfAtIndex considering string length */
+	    while (offset-- > 0 && src < srcend) {
+		src += TclUtfToUniChar(src, &ch);
+	    }
+	    mb[1].coffs = mb[0].coffs -= offset+1;
+	    mb[1].boffs = mb[0].boffs = src - matchstr;
+	    if (offset <= 0) {
+	    	offset = mb[0].boffs;
+	    } else {
+		offset = stringLength+1; /* outside of string (and > 0 for empty string) */
+	    }
 	}
     } else {
-	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
+	matchstr = (const char *)Tcl_GetByteArrayFromObj(objPtr, &stringLength);
+	if (offset > 0) {
+	    mb[1].coffs = mb[0].coffs = mb[1].boffs = mb[0].boffs = offset;
+	}
     }
 
     AllocCaptStorage(regexpPtr);
@@ -1755,20 +1779,23 @@ TclRegexpPCRE(
 	    * If offset > stringLength, it avoids bad offset error (PCRE_ERROR_BADOFFSET).
 	    */
 	    if (offset >= stringLength) {
-	    	int bol;
-	    	/* avoid match {^$} without multiline, if we are out of range */
+		int bol;
+		/* avoid match {^$} without multiline, if we are out of range */
 		if (!numMatches && offset > stringLength) {
 		    eflags |= PCRE_NOTBOL;
 		}
 		/* safe offset to correct indices if empty match found */
-		offsetDiff = offset;
+		offsetDiff = offsetC;
 		offset = stringLength;	/* offset after last char */
 		if (all && numMatches && offset) {
-		    if (objPtr->typePtr != &tclByteArrayType) {
-			bol = *(Tcl_UtfAtIndex(matchstr, offset-1)) == '\n';
+		    /* 
+		    if (utfstr) {
+			bol = *(Tcl_UtfPrev(matchstr + offset, matchstr)) == '\n';
 		    } else {
 			bol = matchstr[offset-1] == '\n';
 		    }
+		    */
+		    bol = matchstr[offset-1] == '\n';
 		    /* fast fallback if we are not begin of new-line (cannot match anyway) */
 		    if (!bol) {
 			break;
@@ -1835,14 +1862,21 @@ TclRegexpPCRE(
 	    /* If we tried unshifted search - repeat from next offset */
 	    if (eflags & PCRE_NOTEMPTY_ATSTART) {
 		eflags &= ~(PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED);
-		offset++;
-		if (objPtr->typePtr != &tclByteArrayType) {
-		    offset = Tcl_UtfAtIndex(matchstr, offset) - matchstr;
+		offsetC++;
+		if (utfstr && offset < stringLength) {
+		    offset = Tcl_UtfNext(matchstr + offset) - matchstr;
+		} else {
+		    offset++;
 		}
 		continue;
 	    }
 	    /* offset to end of string */
 	    offset = stringLength;
+	    if (utfstr && indices) {
+		offsetC = Tcl_NumUtfChars(matchstr, stringLength);
+	    } else {
+	        offsetC = offset;
+	    }
 
 	    /* repeat once search at end */
 	    continue;
@@ -1864,35 +1898,86 @@ TclRegexpPCRE(
 	    objc = (!(regexpPtr->flags & TCL_REG_PCDFA)) ? 
 		regexpPtr->re.re_nsub + 1 : match;
 	    if (!resultPtr) {
-		resultPtr = Tcl_NewObj();
+		/* empty list with reserved elements by current matched count */
+		resultPtr = Tcl_NewListObj(objc, NULL);
 	    }
 	}
+
 	for (i = 0; i < objc; i++) {
 	    Tcl_Obj *newPtr;
 	    int start, end;
 
 	    if (i < match) {
-	    	if (!offsetDiff) {
-		    start = offsets[i*2];
-		    end = offsets[i*2 + 1];
-	    	} else {
+		start = offsets[i*2];
+		end = offsets[i*2 + 1];
+		/* OFFS_BYTE2CHAR: convert offset in bytes to offset in chars */
+		if (indices) {
+		  if (!offsetDiff) {
+		    if (start >= 0) {
+			int bstart = start, bend = end;
+			const char *src, *srcend;
+			Tcl_UniChar ch;
+
+			if (bstart >= mb[1].boffs) {
+			    bstart -= mb[1].boffs;
+			    bend -= mb[1].boffs;
+			    src = matchstr + mb[1].boffs;
+			    start = mb[1].coffs;
+			} else if (bstart >= mb[0].boffs) {
+			    bstart -= mb[0].boffs;
+			    bend -= mb[0].boffs;
+			    src = matchstr + mb[0].boffs;
+			    start = mb[0].coffs;
+			} else {
+			    /* todo: check this obscure case is possible at all, 
+			     * e. g. by unshifted search */
+			    src = matchstr;
+			    start = 0;
+			}
+			srcend = src + bstart;
+			while (src < srcend) {
+			    start++;
+			    src += TclUtfToUniChar(src, &ch);
+			}
+			end = start;
+			if (bend > bstart) {
+			    bend -= bstart;
+			    srcend = src + bend;
+			    while (src < srcend) {
+				end++;
+				src += TclUtfToUniChar(src, &ch);
+			    }
+			}
+			if (i == 0) {
+			    mb[0].boffs = offsets[0];
+			    mb[0].coffs = start;
+			    mb[1].boffs = offsets[1];
+			    mb[1].coffs = end;
+			}
+		    }
+		  } else {
 		    /* if out of range we've always empty match [offs, offs-1] */
 		    end = start = offsetDiff;
+		  }
 		}
 	    } else {
 		start = -1;
-		end = -1;
+		end = 0;
 	    }
 	    if (indices) {
 		Tcl_Obj *objs[2];
 
 		objs[0] = Tcl_NewLongObj(start);
-		objs[1] = Tcl_NewLongObj((end < 0) ? end : end - 1);
+		objs[1] = Tcl_NewLongObj(end >= 0 ? end-1 : end);
 
 		newPtr = Tcl_NewListObj(2, objs);
 	    } else {
 		if (i < match) {
-		    newPtr = Tcl_NewStringObj(matchstr + start, end - start);
+		    if (utfstr) {
+			newPtr = Tcl_NewStringObj(matchstr + start, end - start);
+		    } else {
+			newPtr = Tcl_NewByteArrayObj((const unsigned char *)(matchstr + start), end - start);
+		    }
 		} else {
 		    newPtr = Tcl_NewObj();
 		}
@@ -1930,8 +2015,10 @@ TclRegexpPCRE(
 
 	if (offsets[1] > offsets[0]) {
 	    offset = offsets[1];
+	    offsetC = mb[1].coffs; /* only used by indices as offsetDiff */
 	} else {
 	    offset = offsets[0];
+	    offsetC = mb[0].coffs; /* only used by indices as offsetDiff */
 	    eflags |= (PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED);
 	}
     }

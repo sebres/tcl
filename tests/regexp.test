@@ -517,8 +517,10 @@ test regexp-15.5 {regexp -start, over end of string} {
     list [regexp -start [string length 1abc2de3] {\d} 1abc2de3 x] [info exists x]
 } {0 0}
 test regexp-15.6 {regexp -start, loss of ^$ behavior} {
-    list [regexp -start 2 {^$} {}]
-} {0}
+    set f1 -
+    list [regexp -start 2 {^$} {}] [regexp -indices -start 2 {^$} {} f1] $f1 \
+	 [regexp -start 2 {^.*$} {}] [regexp -indices -start 2 {^.*$} {} f1] $f1
+} {0 0 - 0 0 -}
 test regexp-15.7 {regexp -start, double option} {
     regexp -start 2 -start 0 a abc
 } 1
@@ -1082,6 +1084,11 @@ test regexp-26.14 {anchored regexp with -line option} {
 	[regexp -all -inline -line -- {^a*} "a\n"] \
 	[regexp -all -inline -line -indices -- {^a*} "a\n"]
 } {{a {}} {{0 0} {2 1}}}
+test regexp-26.14m {anchored regexp with -line option (multi-byte utf capability)} {
+    list \
+    [regexp -all -inline -line -- {^\w*} "\xe4\n"] \
+    [regexp -all -inline -line -indices -- {^\w*} "\xe4\n"]
+} [list [list \xe4 {}] {{0 0} {2 1}}]
 test regexp-26.15.1 {anchored regexp without -line option} {
     list \
 	[regexp -all -inline -- {^a*} "a\n"] \
