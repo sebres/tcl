@@ -1138,7 +1138,12 @@ test regexp-27.2 {search in byte-array} {
 	[list \xb5 \xd1 \xd1] \
 	{{3 3} {4 4} {6 6}} \
 ]
-
+test regexp-27.3 {regression test, support of \uXXXX escape sequences} {
+    list [regexp -all -inline {\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -all -indices -inline {\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -inline {\u0442..\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -indices -inline {\u0442..\u0442} \u0442\u0435\u0441\u0442]
+} [list [list \u0442 \u0442] {{0 0} {3 3}} \u0442\u0435\u0441\u0442 {{0 3}}]
 
 
 # cleanup

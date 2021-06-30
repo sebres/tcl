@@ -1220,9 +1220,10 @@ CompileRegexp(
 	 */
 
 	/* XXX Should enable PCRE_UTF8 selectively on non-ByteArray Tcl_Obj 
-	 * TODO: parse of bytearray doesn't expect PCRE_UTF8 here */
+	 * TODO: parse of bytearray doesn't expect PCRE_UTF8 here 
+	 * PCRE_JAVASCRIPT_COMPAT - for \uXXXX char sequence support */
 	pcrecflags = PCRE_UTF8 | PCRE_UCP | PCRE_NO_UTF8_CHECK |
-		PCRE_DOLLAR_ENDONLY;
+		PCRE_DOLLAR_ENDONLY | PCRE_JAVASCRIPT_COMPAT;
 	/*
 	for (i = 0, p = cstring; i < length; i++) {
 	    if (UCHAR(*p++) > 0x80) {
@@ -1752,7 +1753,7 @@ TclRegexpPCRE(
 	    mb[1].coffs = mb[0].coffs -= offset+1;
 	    mb[1].boffs = mb[0].boffs = src - matchstr;
 	    if (offset <= 0) {
-	    	offset = mb[0].boffs;
+		offset = mb[0].boffs;
 	    } else {
 		offset = stringLength+1; /* outside of string (and > 0 for empty string) */
 	    }
