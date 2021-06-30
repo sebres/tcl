@@ -1700,7 +1700,7 @@ TclRegexpPCRE(
 {
 #ifdef HAVE_PCRE
     int i, match, eflags, pcrecflags = 0, stringLength, matchelems, *offsets,
-	offsetDiff, offsetC = offset, numMatches = 0, utfstr;
+	offsetDiff, offsetC = offset, numMatches = 0 /*, utfstr*/;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
     pcre *re;
@@ -1713,7 +1713,18 @@ TclRegexpPCRE(
     } mb[2] = {{0, 0}, {0, 0}};
 
     objPtr = objv[1];
+    /* 
+     * Match byte-array as string (safe against shimmer, probably possible if RE
+     * gets recompiled on demand without PCRE_UTF8, but there are '\w' or `[[:alpha:]]`
+     * which could then confuse some byte sequences with chars, so to avoid regression
+     * let parse it as utf-8).
+     * TODO: implement -binary option to scan byte-array as byte-array
+     */
+#define utfstr 1
+#if 0
+    /* not implemented for byte-array */
     utfstr = (objPtr->typePtr != &tclByteArrayType);
+#endif
     /*
      * Get match string and translate offset into correct placement for utf-8 chars.
      */
@@ -2039,6 +2050,9 @@ TclRegexpPCRE(
 	Tcl_SetObjResult(interp, Tcl_NewIntObj(numMatches));
     }
     return TCL_OK;
+
+#undef utfstr
+
 #else /* !HAVE_PCRE */
     Tcl_AppendResult(interp, "PCRE not available", NULL);
     return TCL_ERROR;

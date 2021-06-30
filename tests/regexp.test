@@ -1111,6 +1111,33 @@ test regexp-26.17 {anchored regexp without -line option} {
 	[regexp -all -inline -indices -- {^a*} "b\n"]
 } {{{}} {{0 -1}}}
 
+test regexp-27.1 {search in byte-array} {
+    list [regexp -start 2 -inline .{2} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -start 2 -inline -indices .{2} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 2 -inline {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 2 -inline -indices {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 0 -inline {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 0 -inline -indices {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]]
+} [list [string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 2 3] \
+	{{2 3}} \
+	[string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 6 7] \
+	{{6 7}} \
+	[lrepeat 2 [string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 6 7]] \
+	{{0 1} {6 7}} \
+]
+test regexp-27.2 {search in byte-array} {
+    list [regexp -all -inline {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -inline -indices {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 3 -inline {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 3 -inline -indices {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]]
+} [list [list \xd1 \xd0 \xb5 \xd1 \xd1] \
+	{{0 0} {2 2} {3 3} {4 4} {6 6}} \
+	[list \xb5 \xd1 \xd1] \
+	{{3 3} {4 4} {6 6}} \
+]
+
+
+
 # cleanup
 ::tcltest::cleanupTests
 return
