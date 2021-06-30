@@ -572,11 +572,16 @@ typedef void (Tcl_ThreadCreateProc) _ANSI_ARGS_((ClientData clientData));
 #define	TCL_REG_COMPILE_UNSHIFT(v) ((v&~0x07)|((v&0x07)<<28)|TCL_REG_ADVANCED)
 
 /*
- * Flags values passed to Tcl_RegExpExecObj.
+ * Flags values passed to Tcl_RegExpExecObj and TclRegexp*.
  */
 
-#define	TCL_REG_NOTBOL	0001	/* Beginning of string does not match ^.  */
-#define	TCL_REG_NOTEOL	0002	/* End of string does not match $. */
+#define	TCL_REG_NOTBOL	    0x00000001	/* Beginning of string does not match ^.  */
+#define	TCL_REG_NOTEOL	    0x00000002	/* End of string does not match $. */
+#define	TCL_REG_RETALL	    0x00000010	/* Return all occurences (repeat as long as matches). */
+#define	TCL_REG_RETIDX	    0x00000020	/* Return indices of matches (instead of strings). */
+#define	TCL_REG_DOINLINE    0x00000040	/* Return matches as a list (instead of placing in variables). */
+#define	TCL_REG_BYTEOFFS    0x01000000	/* Consider offsets in bytes instead of in chars (PCRE only) */
+
 
 /*
  * Structures filled in by Tcl_RegExpInfo. Note that all offset values are

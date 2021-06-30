@@ -334,6 +334,9 @@ test regexp-7.18m {regsub multi-byte utf capability} {
 test regexp-7.18m2 {regsub multi-byte utf capability} {
     regsub -all -start 2 {\w{2}(?=\w)} a\xe4\xc4\xe4\xdc\xfcz {\0-}
 } "a\xe4\xc4\xe4-\xdc\xfc-z"
+test regexp-7.18m3 {regsub multi-byte utf capability} {
+    regsub -all -start 2 {\w{2}} \u043f\u0440\u0438\u0432\u0435\u0442 {=\0-}
+} "\u043f\u0440=\u0438\u0432-=\u0435\u0442-"
 
 test regexp-8.1 {case conversion in regsub} {
     list [regsub -nocase a(a+) xaAAaAAay & foo] $foo

@@ -491,15 +491,36 @@ Tcl_RegExpExecObj(
 	AllocCaptStorage(regexpPtr);
 	offsets = reStorage->offsets;
 
-	if (textObj->typePtr == &tclByteArrayType) {
-	    matchstr = (const char*)Tcl_GetByteArrayFromObj(textObj, &length);
-	} else {
+#define utfstr 1
+#if 0
+	/* not implemented for byte-array */
+	utfstr = (textObj->typePtr != &tclByteArrayType);
+#endif
+	if (utfstr) {
 	    matchstr = Tcl_GetStringFromObj(textObj, &length);
+	    /* OFFS_CHAR2BYTE: convert offset in chars to offset in bytes */
+	    if (!(flags & TCL_REG_BYTEOFFS) && offset > 0) {
+		Tcl_UniChar ch;
+		const char *src = matchstr, *srcend = matchstr + length;
+
+		/* Tcl_UtfAtIndex considering string length */
+		while (offset-- > 0 && src < srcend) {
+		    src += TclUtfToUniChar(src, &ch);
+		}
+		if (offset <= 0) {
+		    offset = src - matchstr;
+		} else {
+		    offset = length+1; /* outside of string (and > 0 for empty string) */
+		}
+	    }
+	} else {
+	    matchstr = (const char*)Tcl_GetByteArrayFromObj(textObj, &length);
 	}
 
 	if (offset > length) {
 	    offset = length;
 	}
+#undef utfstr
 
 	regexpPtr->details.rm_extend.rm_so = offset;
 
@@ -570,6 +591,14 @@ Tcl_RegExpExecObj(
 		offsets[i] -= offset;
 	    }
 	}
+	/* TODO: OFFS_BYTE2CHAR not yet implemented for Tcl_RegExpExecObj* /
+	/ * OFFS_BYTE2CHAR: convert offset in bytes to offset in chars * /
+	if (!(flags & TCL_REG_BYTEOFFS)) {
+	    ...
+	    see for example OFFS_BYTE2CHAR block in TclRegexpPCRE
+	    ...
+	}
+	*/
 
 	return 1;
 #else
@@ -1463,12 +1492,10 @@ TclRegexpClassic(
     int objc,			/* Number of arguments. */
     Tcl_Obj *CONST objv[],	/* Argument objects. */
     Tcl_RegExp regExpr,
-    int all,
-    int indices,
-    int doinline,
+    int flags,
     int offset)
 {
-    int i, match, numMatchesSaved;
+    int i, match, numMatches = 0, numMatchesSaved;
     int eflags, stringLength, matchLength;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     Tcl_RegExpInfo info;
@@ -1480,7 +1507,7 @@ TclRegexpClassic(
     objc -= 2;
     objv += 2;
 
-    if (doinline) {
+    if (flags & TCL_REG_DOINLINE) {
 	/*
 	 * Save all the subexpressions, as we will return them as a list
 	 */
@@ -1493,7 +1520,7 @@ TclRegexpClassic(
 	 * where to move the offset.
 	 */
 
-	numMatchesSaved = (objc == 0) ? all : objc;
+	numMatchesSaved = (objc == 0) ? (flags & TCL_REG_RETALL) : objc;
     }
 
     /*
@@ -1529,23 +1556,6 @@ TclRegexpClassic(
 	}
 
 	if (match == 0) {
-	    /*
-	     * We want to set the value of the intepreter result only when
-	     * this is the first time through the loop.
-	     */
-
-	    if (all <= 1) {
-		/*
-		 * If inlining, the interpreter's object result remains an
-		 * empty list, otherwise set it to an integer object w/ value
-		 * 0.
-		 */
-
-		if (!doinline) {
-		    Tcl_SetObjResult(interp, Tcl_NewIntObj(0));
-		}
-		return TCL_OK;
-	    }
 	    break;
 	}
 
@@ -1555,21 +1565,21 @@ TclRegexpClassic(
 	 */
 
 	Tcl_RegExpGetInfo(regExpr, &info);
-	if (doinline) {
+	if (flags & TCL_REG_DOINLINE) {
 	    /*
 	     * It's the number of substitutions, plus one for the matchVar at
 	     * index 0
 	     */
 
 	    objc = info.nsubs + 1;
-	    if (all <= 1) {
+	    if (!resultPtr) {
 		resultPtr = Tcl_NewObj();
 	    }
 	}
 	for (i = 0; i < objc; i++) {
 	    Tcl_Obj *newPtr;
 
-	    if (indices) {
+	    if (flags & TCL_REG_RETIDX) {
 		int start, end;
 		Tcl_Obj *objs[2];
 
@@ -1608,7 +1618,7 @@ TclRegexpClassic(
 		    newPtr = Tcl_NewObj();
 		}
 	    }
-	    if (doinline) {
+	    if (flags & TCL_REG_DOINLINE) {
 		if (Tcl_ListObjAppendElement(interp, resultPtr, newPtr)
 			!= TCL_OK) {
 		    Tcl_DecrRefCount(newPtr);
@@ -1626,13 +1636,14 @@ TclRegexpClassic(
 	    }
 	}
 
-	if (all == 0) {
+	numMatches++;
+	if (!(flags & TCL_REG_RETALL)) {
 	    break;
 	}
 
 	/*
 	 * Adjust the offset to the character just after the last one in the
-	 * matchVar and increment all to count how many times we are making a
+	 * matchVar and increment numMatches to count how many times we have
 	 * match. We always increment the offset by at least one to prevent
 	 * endless looping (as in the case: regexp -all {a*} a). Otherwise,
 	 * when we match the NULL string at the end of the input string, we
@@ -1651,22 +1662,21 @@ TclRegexpClassic(
 	if (matchLength == 0) {
 	    offset++;
 	}
-	all++;
 	if (offset >= stringLength) {
 	    break;
 	}
     }
 
     /*
-     * Set the interpreter's object result to an integer object with value 1
-     * if -all wasn't specified, otherwise it's all-1 (the number of times
-     * through the while - 1).
+     * Set the interpreter's object result to an integer object with numMatches
+     * (the number of times through the while - 1) if -inline wasn't specified,
+     * otherwise it's a list with matches.
      */
 
-    if (doinline) {
-	Tcl_SetObjResult(interp, resultPtr);
+    if (flags & TCL_REG_DOINLINE) {
+	Tcl_SetObjResult(interp, resultPtr ? resultPtr : Tcl_NewObj());
     } else {
-	Tcl_SetObjResult(interp, Tcl_NewIntObj(all ? all-1 : 1));
+	Tcl_SetObjResult(interp, Tcl_NewIntObj(numMatches));
     }
     return TCL_OK;
 }
@@ -1693,9 +1703,7 @@ TclRegexpPCRE(
     int objc,			/* Number of arguments. */
     Tcl_Obj *CONST objv[],	/* Argument objects. */
     Tcl_RegExp regExpr,
-    int all,
-    int indices,
-    int doinline,
+    int flags,
     int offset)
 {
 #ifdef HAVE_PCRE
@@ -1731,7 +1739,7 @@ TclRegexpPCRE(
     if (utfstr) {
 	matchstr = Tcl_GetStringFromObj(objPtr, &stringLength);
 	/* OFFS_CHAR2BYTE: convert offset in chars to offset in bytes */
-	if (offset > 0) {
+	if (!(flags & TCL_REG_BYTEOFFS) && offset > 0) {
 	    Tcl_UniChar ch;
 	    const char *src = matchstr, *srcend = matchstr + stringLength;
 
@@ -1773,7 +1781,7 @@ TclRegexpPCRE(
     study = regexpPtr->study;
     matchelems = VectorCoountPCRE(regexpPtr);
     eflags = PCRE_NO_UTF8_CHECK;
-    if (all) {
+    if ((flags & TCL_REG_RETALL)) {
 	pcre_fullinfo(re, NULL, PCRE_INFO_OPTIONS, &pcrecflags);
     }
     while (1) {
@@ -1798,7 +1806,7 @@ TclRegexpPCRE(
 		/* safe offset to correct indices if empty match found */
 		offsetDiff = offsetC;
 		offset = stringLength;	/* offset after last char */
-		if (all && numMatches && offset) {
+		if ((flags & TCL_REG_RETALL) && numMatches && offset) {
 		    /* 
 		    if (utfstr) {
 			bol = *(Tcl_UtfPrev(matchstr + offset, matchstr)) == '\n';
@@ -1818,7 +1826,7 @@ TclRegexpPCRE(
 			eflags |= PCRE_ANCHORED;
 		    }
 		}
-		all = 0;			/* don't repeat */
+		flags &= ~TCL_REG_RETALL;		/* don't repeat */
 	    }
 	}
 
@@ -1867,7 +1875,7 @@ TclRegexpPCRE(
 	    * Option pcrecflags & PCRE_ANCHORED is not set in multiline mode (resp. `(?m)`),
 	    * in this case no match means - we will find nothing at all, so don't repeat.
 	    */
-	    if (!all || !numMatches || !stringLength || (pcrecflags & PCRE_ANCHORED)) {
+	    if (!(flags & TCL_REG_RETALL) || !numMatches || !stringLength || (pcrecflags & PCRE_ANCHORED)) {
 		break;
 	    }
 	    /* If we tried unshifted search - repeat from next offset */
@@ -1883,7 +1891,7 @@ TclRegexpPCRE(
 	    }
 	    /* offset to end of string */
 	    offset = stringLength;
-	    if (utfstr && indices) {
+	    if (utfstr && (flags & TCL_REG_RETIDX)) {
 		offsetC = Tcl_NumUtfChars(matchstr, stringLength);
 	    } else {
 	        offsetC = offset;
@@ -1898,7 +1906,7 @@ TclRegexpPCRE(
 	 * information in those variables.
 	 */
 
-	if (doinline) {
+	if (flags & TCL_REG_DOINLINE) {
 	    /*
 	     * It's the number of substitutions, plus one for the matchVar at
 	     * index 0
@@ -1922,7 +1930,7 @@ TclRegexpPCRE(
 		start = offsets[i*2];
 		end = offsets[i*2 + 1];
 		/* OFFS_BYTE2CHAR: convert offset in bytes to offset in chars */
-		if (indices) {
+		if (!(flags & TCL_REG_BYTEOFFS) && (flags & TCL_REG_RETIDX)) {
 		  if (!offsetDiff) {
 		    if (start >= 0) {
 			int bstart = start, bend = end;
@@ -1975,7 +1983,7 @@ TclRegexpPCRE(
 		start = -1;
 		end = 0;
 	    }
-	    if (indices) {
+	    if (flags & TCL_REG_RETIDX) {
 		Tcl_Obj *objs[2];
 
 		objs[0] = Tcl_NewLongObj(start);
@@ -1993,7 +2001,7 @@ TclRegexpPCRE(
 		    newPtr = Tcl_NewObj();
 		}
 	    }
-	    if (doinline) {
+	    if (flags & TCL_REG_DOINLINE) {
 		if (Tcl_ListObjAppendElement(interp, resultPtr, newPtr)
 			!= TCL_OK) {
 		    Tcl_DecrRefCount(newPtr);
@@ -2012,7 +2020,7 @@ TclRegexpPCRE(
 	}
 
 	numMatches++;
-	if (!all) {
+	if (!(flags & TCL_REG_RETALL)) {
 	    break;
 	}
 
@@ -2035,17 +2043,13 @@ TclRegexpPCRE(
     }
 
     /*
-     * Set the interpreter's object result to an integer object with value 1
-     * if -all wasn't specified, otherwise it's all-1 (the number of times
-     * through the while - 1).
+     * Set the interpreter's object result to an integer object with numMatches
+     * (the number of times through the while - 1) if -inline wasn't specified,
+     * otherwise it's a list with matches.
      */
 
-    if (doinline) {
-    	if (resultPtr) {
-	    Tcl_SetObjResult(interp, resultPtr);
-	} else {
-	    Tcl_ResetResult(interp);
-	}
+    if (flags & TCL_REG_DOINLINE) {
+	Tcl_SetObjResult(interp, resultPtr ? resultPtr : Tcl_NewObj());
     } else {
 	Tcl_SetObjResult(interp, Tcl_NewIntObj(numMatches));
     }

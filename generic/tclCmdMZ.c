@@ -87,7 +87,7 @@ Tcl_RegexpObjCmd(
     int objc,			/* Number of arguments. */
     Tcl_Obj *const objv[])	/* Argument objects. */
 {
-    int i, indices, about, offset, all, doinline;
+    int i, about, offset, flags = 0;
     int cflags, re_type;
     Tcl_Obj *startIndex = NULL;
     Tcl_RegExp regExpr;
@@ -108,13 +108,10 @@ Tcl_RegexpObjCmd(
 	RETYPE_CLASSIC,	RETYPE_DFA,	RETYPE_PCRE
     };
 
-    indices = 0;
     about = 0;
     re_type = 0;
     cflags = TCL_REG_ADVANCED;
     offset = 0;
-    all = 0;
-    doinline = 0;
 
     for (i = 1; i < objc; i++) {
 	char *name;
@@ -130,13 +127,13 @@ Tcl_RegexpObjCmd(
 	}
 	switch ((enum options) index) {
 	case REGEXP_ALL:
-	    all = 1;
+	    flags |= TCL_REG_RETALL;
 	    break;
 	case REGEXP_INDICES:
-	    indices = 1;
+	    flags |= TCL_REG_RETIDX;
 	    break;
 	case REGEXP_INLINE:
-	    doinline = 1;
+	    flags |= TCL_REG_DOINLINE;
 	    break;
 	case REGEXP_NOCASE:
 	    cflags |= TCL_REG_NOCASE;
@@ -212,7 +209,7 @@ Tcl_RegexpObjCmd(
      * no-no.
      */
 
-    if (doinline && ((objc - 2) != 0)) {
+    if ((flags & TCL_REG_DOINLINE) && ((objc - 2) != 0)) {
 	Tcl_AppendResult(interp, "regexp match variables not allowed"
 		" when using -inline", NULL);
       optionError:
@@ -268,7 +265,7 @@ Tcl_RegexpObjCmd(
 	}
 
 	return TclRegexpClassic(interp, objc, objv, regExpr,
-		all, indices, doinline, offset);
+		flags, offset);
     } else {
 	if (about) {
 	    /* XXX: implement PCRE about */
@@ -276,7 +273,7 @@ Tcl_RegexpObjCmd(
 	}
 
 	return TclRegexpPCRE(interp, objc, objv, regExpr,
-		all, indices, doinline, offset);
+		flags, offset);
     }
 }
 
@@ -696,18 +693,20 @@ Tcl_RegsubObjCmd(
 
     	char ch, *wsrc, *wfirstChar, *cstring, *wsubspec, *wend;
 
-	if (objPtr->typePtr == &tclByteArrayType) {
-	    cstring = Tcl_GetByteArrayFromObj(objPtr, &wlen);
-	} else {
-		/* XXX validate offset by char length */
-	    cstring = Tcl_GetStringFromObj(objPtr, &wlen);
+	cstring = Tcl_GetStringFromObj(objPtr, &wlen);
+	/* OFFS_CHAR2BYTE: convert offset in chars to offset in bytes,
+	 * further offsets are byte offset (see TCL_REG_BYTEOFFS). */
+	if (offset > 0) {
+	    Tcl_UniChar ch;
+	    const char *src = cstring, *srcend = cstring + wlen;
+
+	    /* Tcl_UtfAtIndex considering string length */
+	    while (offset-- > 0 && src < srcend) {
+		src += TclUtfToUniChar(src, &ch);
+	    }
+	    offset = src - cstring;
 	}
-	if (subPtr->typePtr == &tclByteArrayType) {
-	    wsubspec = Tcl_GetByteArrayFromObj(subPtr, &wsublen);
-	} else {
-		/* XXX validate offset by char length */
-	    wsubspec = Tcl_GetStringFromObj(subPtr, &wsublen);
-	}
+	wsubspec = Tcl_GetStringFromObj(subPtr, &wsublen);
 
 	/*
 	 * The following loop is to handle multiple matches within the same source
@@ -730,7 +729,7 @@ Tcl_RegsubObjCmd(
 	    match = Tcl_RegExpExecObj(interp, regExpr, objPtr, offset,
 		    10 /* matches */, ((offset > 0 &&
 		    (cstring[offset-1] != '\n'))
-		    ? TCL_REG_NOTBOL : 0));
+		    ? TCL_REG_NOTBOL : 0) | TCL_REG_BYTEOFFS);
 
 	    if (match < 0) {
 		result = TCL_ERROR;

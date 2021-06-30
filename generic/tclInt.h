@@ -3369,10 +3369,10 @@ MODULE_SCOPE int	TclObjCallVarTraces(Interp *iPtr, Var *arrayPtr,
 
 MODULE_SCOPE int	TclRegexpClassic(Tcl_Interp *interp, int objc,
 			    Tcl_Obj *CONST objv[], Tcl_RegExp regExpr,
-			    int all, int indices, int doinline, int offset);
+			    int flags, int offset);
 MODULE_SCOPE int	TclRegexpPCRE(Tcl_Interp *interp, int objc,
 			    Tcl_Obj *CONST objv[], Tcl_RegExp regExpr,
-			    int all, int indices, int doinline, int offset);
+			    int flags, int offset);
 
 /*
  * So tclObj.c and tclDictObj.c can share these implementations.
