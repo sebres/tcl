@@ -2012,6 +2012,8 @@ typedef struct Interp {
  *			of the wrong-num-args string in Tcl_WrongNumArgs.
  *			Makes it append instead of replacing and uses
  *			different intermediate text.
+ * INTERP_PCRE		Non-zero means use PCRE engine by default for REs.
+ * INTERP_DFA		Non-zero means use dfa mode of PCRE engine by default.
  *
  * WARNING: For the sake of some extensions that have made use of former
  * internal values, do not re-use the flag values 2 (formerly ERR_IN_PROGRESS)
@@ -2027,6 +2029,8 @@ typedef struct Interp {
 #define INTERP_TRACE_IN_PROGRESS	 0x200
 #define INTERP_ALTERNATE_WRONG_ARGS	 0x400
 #define ERR_LEGACY_COPY			 0x800
+#define INTERP_PCRE			0x1000
+#define INTERP_DFA			0x2000
 
 /*
  * Maximum number of levels of nesting permitted in Tcl commands (used to
@@ -3358,6 +3362,17 @@ MODULE_SCOPE void	TclInvalidateNsPath(Namespace *nsPtr);
 MODULE_SCOPE int	TclObjCallVarTraces(Interp *iPtr, Var *arrayPtr,
 			    Var *varPtr, Tcl_Obj *part1Ptr, Tcl_Obj *part2Ptr,
 			    int flags, int leaveErrMsg, int index);
+
+/*
+ * The variant RE engines
+ */
+
+MODULE_SCOPE int	TclRegexpClassic(Tcl_Interp *interp, int objc,
+			    Tcl_Obj *CONST objv[], Tcl_RegExp regExpr,
+			    int flags, int offset);
+MODULE_SCOPE int	TclRegexpPCRE(Tcl_Interp *interp, int objc,
+			    Tcl_Obj *CONST objv[], Tcl_RegExp regExpr,
+			    int flags, int offset);
 
 /*
  * So tclObj.c and tclDictObj.c can share these implementations.
