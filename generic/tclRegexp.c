@@ -1683,6 +1683,61 @@ TclRegexpClassic(
 }
 
 /*
+ * Helper to map byte offset to char offset, using array of known offsets
+ * mb2c, which gets stored typically:
+ * first start [0], last known middle start [1] & end [2], first end [3]
+ */
+int
+BOffs2COffs(
+    int *mb2c,		/* Mapping array of offsets ([0..3] - byte offsets,
+			 * [4..7] - char offsets). */
+    const char *src,	/* String source in utf-8. */
+    int offs)		/* Byte offset to be mapped to char offset; caller must
+			 * check it is positive. */
+{
+    int i, o = offs, coffs = 0;
+
+    /* Scan for known offsets starting from largest one */
+    for (i = 3; i >= 0 && mb2c[i]; i--) {
+	if (o >= mb2c[i]) {
+	    o -= mb2c[i];
+	    src += mb2c[i];
+	    coffs = mb2c[i+4];
+	    break;
+	}
+    }
+    /* Scan for chars in source starting from found known offset or 0 */
+    if (o) {
+	const char *srcend;
+	Tcl_UniChar ch = 0;
+	
+	srcend = src + o;
+	do {
+	    coffs++;
+	    src += TclUtfToUniChar(src, &ch);
+	} while (src < srcend);
+	/*
+	 * New offset known that is larger that previously known one, store it
+	 * and shift indices (1st and 2nd only), because 0th and 3rd are reserved
+	 * for first start and end indices (helps by search of nested indices).
+	 */
+	if (i > 1) {
+	    if (i > 2 && mb2c[i-1]) {
+		mb2c[i-2] = mb2c[i-1];
+		mb2c[i+4-2] = mb2c[i+4-1];
+	    }
+	    if (mb2c[i]) {
+		mb2c[i-1] = mb2c[i];
+		mb2c[i+4-1] = mb2c[i+4];
+	    }
+	    mb2c[i] = offs;
+	    mb2c[i+4] = coffs;
+	}
+    }
+    return coffs;
+}
+
+/*
  *----------------------------------------------------------------------
  *
  * TclRegexpPCRE --
@@ -1716,10 +1771,7 @@ TclRegexpPCRE(
     pcre_extra *study;
     TclRegexp *regexpPtr = (TclRegexp *) regExpr;
     TclRegexpStorage *reStorage = regexpPtr->reStorage;
-    struct {
-	int coffs; /* last known offset in bytes */
-	int boffs; /* last known offset in chars */
-    } mb[2] = {{0, 0}, {0, 0}};
+    int mb2c[4*2] = {/* byte offs */ 0, 0, 0, 0,  /* char offs */ 0, 0, 0, 0};
 
     objPtr = objv[1];
     /* 
@@ -1745,15 +1797,15 @@ TclRegexpPCRE(
 	    const char *src = matchstr, *srcend = matchstr + stringLength;
 
 	    
-	    mb[0].coffs = offset;
+	    mb2c[0+4] = offset;
 	    /* Tcl_UtfAtIndex considering string length */
 	    while (offset-- > 0 && src < srcend) {
 		src += TclUtfToUniChar(src, &ch);
 	    }
-	    mb[1].coffs = mb[0].coffs -= offset+1;
-	    mb[1].boffs = mb[0].boffs = src - matchstr;
+	    mb2c[3+4] = (mb2c[0+4] -= offset+1); /* known char offset */
+	    mb2c[3] = mb2c[0] = src - matchstr;  /* for this byte offset */
 	    if (offset <= 0) {
-		offset = mb[0].boffs;
+		offset = mb2c[0];
 	    } else {
 		offset = stringLength+1; /* outside of string (and > 0 for empty string) */
 	    }
@@ -1761,7 +1813,8 @@ TclRegexpPCRE(
     } else {
 	matchstr = (const char *)Tcl_GetByteArrayFromObj(objPtr, &stringLength);
 	if (offset > 0) {
-	    mb[1].coffs = mb[0].coffs = mb[1].boffs = mb[0].boffs = offset;
+	    mb2c[3+4] = mb2c[0+4] =
+	    mb2c[3] = mb2c[0] = offset;
 	}
     }
 
@@ -1933,47 +1986,20 @@ TclRegexpPCRE(
 		/* OFFS_BYTE2CHAR: convert offset in bytes to offset in chars */
 		if (!(flags & TCL_REG_BYTEOFFS) && (flags & TCL_REG_RETIDX)) {
 		  if (!offsetDiff) {
-		    if (start >= 0) {
-			int bstart = start, bend = end;
-			const char *src, *srcend;
-			Tcl_UniChar ch;
-
-			if (bstart >= mb[1].boffs) {
-			    bstart -= mb[1].boffs;
-			    bend -= mb[1].boffs;
-			    src = matchstr + mb[1].boffs;
-			    start = mb[1].coffs;
-			} else if (bstart >= mb[0].boffs) {
-			    bstart -= mb[0].boffs;
-			    bend -= mb[0].boffs;
-			    src = matchstr + mb[0].boffs;
-			    start = mb[0].coffs;
-			} else {
-			    /* todo: check this obscure case is possible at all, 
-			     * e. g. by unshifted search */
-			    src = matchstr;
-			    start = 0;
-			}
-			srcend = src + bstart;
-			while (src < srcend) {
-			    start++;
-			    src += TclUtfToUniChar(src, &ch);
-			}
-			end = start;
-			if (bend > bstart) {
-			    bend -= bstart;
-			    srcend = src + bend;
-			    while (src < srcend) {
-				end++;
-				src += TclUtfToUniChar(src, &ch);
-			    }
-			}
-			if (i == 0) {
-			    mb[0].boffs = offsets[0];
-			    mb[0].coffs = start;
-			    mb[1].boffs = offsets[1];
-			    mb[1].coffs = end;
-			}
+		    if (start > 0) {
+		    	start = BOffs2COffs(mb2c, matchstr, start);
+		    }
+		    if (end > 0) {
+		    	end = BOffs2COffs(mb2c, matchstr, end);
+		    }
+		    /* first is whole match, so store its indices as 0th and 3rd */
+		    if (i == 0) {
+		    	/* mostly smallest */
+			mb2c[0] = offsets[0];
+			mb2c[0+4] = start;
+			/* mostly largest */
+			mb2c[3] = offsets[1];
+			mb2c[3+4] = end;
 		    }
 		  } else {
 		    /* if out of range we've always empty match [offs, offs-1] */
@@ -2035,10 +2061,10 @@ TclRegexpPCRE(
 
 	if (offsets[1] > offsets[0]) {
 	    offset = offsets[1];
-	    offsetC = mb[1].coffs; /* only used by indices as offsetDiff */
+	    offsetC = mb2c[3+4]; /* only used by indices as offsetDiff */
 	} else {
 	    offset = offsets[0];
-	    offsetC = mb[0].coffs; /* only used by indices as offsetDiff */
+	    offsetC = mb2c[0+4]; /* only used by indices as offsetDiff */
 	    eflags |= (PCRE_NOTEMPTY_ATSTART|PCRE_ANCHORED);
 	}
     }
