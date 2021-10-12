@@ -316,8 +316,6 @@ RegExpExecUniChar(
 	nm = (size_t) nmatches;
     }
 
-    AllocCaptStorage(regexpPtr);
-
     status = TclReExec(&regexpPtr->re, wString, (size_t) numChars,
 	    &regexpPtr->details, nm, reStorage->matches, flags);
 
@@ -486,9 +484,9 @@ Tcl_RegExpExecObj(
     if (reflags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
 	const char *matchstr;
-	int match, eflags, *offsets, nm = VectorCoountPCRE(regexpPtr);
+	int match, eflags, *offsets, nm;
 
-	AllocCaptStorage(regexpPtr);
+	nm = reStorage->offsCnt;
 	offsets = reStorage->offsets;
 
 #define utfstr 1
@@ -557,7 +555,8 @@ Tcl_RegExpExecObj(
 		/* insufficient capture space - enlarge vectors buffer */
 		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
 		AllocCaptStorage(regexpPtr);
-		nm = VectorCoountPCRE(regexpPtr);
+		nm = reStorage->offsCnt;
+		offsets = reStorage->offsets;
 	    } while(1);
 	}
 
@@ -1046,7 +1045,8 @@ AllocCaptStorage(TclRegexp *regexpPtr)
      * if sizes of regoffs_t and regmatch_t are equal.
      */
     veccnt = VectorCoountPCRE(regexpPtr);
-    if (!reStorage->offsets || reStorage->offsSize < sizeof(int) * veccnt) {
+    if (reStorage->offsCnt < veccnt) {
+	reStorage->offsCnt = veccnt;
 	reStorage->offsSize = sizeof(int) * veccnt;
 	/* if initial call (first call) */
 	if (!reStorage->offsets) {
@@ -1373,6 +1373,9 @@ CompileRegexp(
     strcpy(tsdPtr->patterns[0], string);
     tsdPtr->patLengths[0] = length;
     tsdPtr->regexps[0] = regexpPtr;
+
+    /* Ensure we have offsets/matches of expected size once at compile time */
+    AllocCaptStorage(regexpPtr);
 
     return regexpPtr;
 }
@@ -1763,7 +1766,7 @@ TclRegexpPCRE(
     int offset)
 {
 #ifdef HAVE_PCRE
-    int i, match, eflags, pcrecflags = 0, stringLength, matchelems, *offsets,
+    int i, match, eflags, pcrecflags = 0, stringLength, *offsets, matchelems,
 	offsetDiff, offsetC = offset, numMatches = 0 /*, utfstr*/;
     Tcl_Obj *objPtr, *resultPtr = NULL;
     const char *matchstr;
@@ -1818,11 +1821,18 @@ TclRegexpPCRE(
 	}
     }
 
-    AllocCaptStorage(regexpPtr);
-    offsets = reStorage->offsets;
-
     objc -= 2;
     objv += 2;
+
+    matchelems = reStorage->offsCnt;
+    offsets = reStorage->offsets;
+
+    re = regexpPtr->pcre;
+    study = regexpPtr->study;
+    eflags = PCRE_NO_UTF8_CHECK;
+    if ((flags & TCL_REG_RETALL)) {
+	pcre_fullinfo(re, NULL, PCRE_INFO_OPTIONS, &pcrecflags);
+    }
 
     /*
      * The following loop is to handle multiple matches within the same source
@@ -1831,13 +1841,6 @@ TclRegexpPCRE(
      * loop when the starting offset is past the end of the string.
      */
 
-    re = regexpPtr->pcre;
-    study = regexpPtr->study;
-    matchelems = VectorCoountPCRE(regexpPtr);
-    eflags = PCRE_NO_UTF8_CHECK;
-    if ((flags & TCL_REG_RETALL)) {
-	pcre_fullinfo(re, NULL, PCRE_INFO_OPTIONS, &pcrecflags);
-    }
     while (1) {
 
 	offsetDiff = 0;
@@ -1900,7 +1903,8 @@ TclRegexpPCRE(
 		/* insufficient capture space - enlarge vectors buffer */
 		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
 		AllocCaptStorage(regexpPtr);
-		matchelems = VectorCoountPCRE(regexpPtr);
+		matchelems = reStorage->offsCnt;
+		offsets = reStorage->offsets;
 	    } while(1);
 	}
 

@@ -31,6 +31,7 @@
 typedef struct {
 #ifdef HAVE_PCRE
     int	  *offsets;		/* Storage for array of offsets (indices to handle within PCRE) */
+    int    offsCnt;
     size_t offsSize;
     int	  *wrkSpace;		/* Workspace storage vector (used by parsing via DFA). */
     int    wrkSpCnt;		/* Current length of shared workspace storage vector */
