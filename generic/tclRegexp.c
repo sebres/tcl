@@ -1270,7 +1270,7 @@ CompileRegexp(
 	    return NULL;
 	}
 
-	regexpPtr->study = pcre_study(pcre, 0, &errstr);
+	regexpPtr->study = pcre_study(pcre, PCRE_STUDY_JIT_COMPILE, &errstr);
 	if (errstr != NULL) {
 	    pcre_free(pcre);
 	    ckfree((char *)regexpPtr);
@@ -1404,7 +1404,7 @@ FreeRegexp(
     if (regexpPtr->flags & TCL_REG_PCRE) {
 	pcre_free(regexpPtr->pcre);
 	if (regexpPtr->study) {
-	    pcre_free(regexpPtr->study);
+	    pcre_free_study(regexpPtr->study);
 	}
     } else
 #endif
