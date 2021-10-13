@@ -636,7 +636,13 @@ test regexp-17.6 {regexp -inline no matches} {
 test regexp-17.7 {regexp -inline, no matchvars allowed} {
     list [catch {regexp -inline b abc match} msg] $msg
 } {1 {regexp match variables not allowed when using -inline}}
-
+test regexp-17.8 {regexp no captures, match only (multiple groups in RE)} {
+    list \
+	[regexp      {^(a)(b)} " ab ab "] \
+	[regexp -all {^(a)(b)} " ab ab "] \
+	[regexp      {(a)(b)}  " ab ab "] \
+	[regexp -all {(a)(b)}  " ab ab "]
+} {0 0 1 2}
 test regexp-18.1 {regexp -all} {
     regexp -all b bbbbb
 } {5}

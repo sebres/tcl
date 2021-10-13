@@ -1824,8 +1824,18 @@ TclRegexpPCRE(
     objc -= 2;
     objv += 2;
 
-    matchelems = reStorage->offsCnt;
     offsets = reStorage->offsets;
+    matchelems = 0;
+    /* need captured groups or -inline */
+    if (objc || (flags & TCL_REG_DOINLINE)) {
+	matchelems = reStorage->offsCnt;
+    } else {
+    	/* -all expects at least the first index in order to scroll over string */
+	if (flags & TCL_REG_RETALL) {
+	    matchelems = 3;
+	}
+    	eflags |= PCRE_NO_AUTO_CAPTURE;
+    }
 
     re = regexpPtr->pcre;
     study = regexpPtr->study;
@@ -1899,12 +1909,12 @@ TclRegexpPCRE(
 		    EnlargeWrkSpaceStorage(regexpPtr);
 		    continue;
 	        }
-		if (match) break;
+		if (match || !(objc || (flags & TCL_REG_DOINLINE))) break;
 		/* insufficient capture space - enlarge vectors buffer */
 		regexpPtr->re.re_nsub = (regexpPtr->re.re_nsub+1)*2;
 		AllocCaptStorage(regexpPtr);
-		matchelems = reStorage->offsCnt;
 		offsets = reStorage->offsets;
+		matchelems = reStorage->offsCnt;
 	    } while(1);
 	}
 
@@ -1920,10 +1930,13 @@ TclRegexpPCRE(
 	    }
 	}
 
-	if (match == 0) {
-	    Tcl_AppendResult(interp,
+	if (!match) {
+	    if ((objc || (flags & TCL_REG_DOINLINE))) {
+		Tcl_AppendResult(interp,
 		    "pcre_exec had insufficient capture space", NULL);
-	    return TCL_ERROR;
+		return TCL_ERROR;
+	    }
+	    match = 1;
 	}
 
 	if (match == PCRE_ERROR_NOMATCH) {
