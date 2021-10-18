@@ -450,7 +450,9 @@ Tcl_RegExpExecObj(
     int flags)			/* Regular expression execution flags. */
 {
     TclRegexp *regexpPtr = (TclRegexp *) re;
+#ifdef HAVE_PCRE
     TclRegexpStorage *reStorage = regexpPtr->reStorage;
+#endif
     int length;
     int reflags = regexpPtr->flags;
 #define TCL_REG_GLOBOK_FLAGS (TCL_REG_ADVANCED | TCL_REG_NOSUB | TCL_REG_NOCASE)
@@ -682,6 +684,7 @@ Tcl_RegExpGetInfo(
     regmatch_t *matches = regexpPtr->reStorage->matches;
 
     infoPtr->nsubs = regexpPtr->re.re_nsub;
+    infoPtr->matches = (Tcl_RegExpIndices *)matches;
     if (regexpPtr->flags & TCL_REG_PCRE) {
 #ifdef HAVE_PCRE
     	int *offsets = regexpPtr->reStorage->offsets;
@@ -692,13 +695,11 @@ Tcl_RegExpGetInfo(
 		matches[i].rm_eo = offsets[i*2+1];
 	    }
 	}
-	infoPtr->matches = (Tcl_RegExpIndices *)matches;
 	infoPtr->extendStart = -1; /* XXX support? */
 #else
 	Tcl_Panic("Cannot get info for PCRE match");
 #endif
     } else {
-	infoPtr->matches = (Tcl_RegExpIndices *)matches;
 	infoPtr->extendStart = regexpPtr->details.rm_extend.rm_so;
     }
 }
@@ -1035,10 +1036,11 @@ SetRegexpFromAny(
 static void
 AllocCaptStorage(TclRegexp *regexpPtr)
 {
-    int veccnt, nsubs = regexpPtr->re.re_nsub;
+    int nsubs = regexpPtr->re.re_nsub;
     TclRegexpStorage *reStorage = regexpPtr->reStorage;
 
 #ifdef HAVE_PCRE
+    int veccnt;
     /* 
      * We use special handling to allocate storages for PCRE offsets/matches,
      * because on some systems size we can use the same storage for both,
@@ -1095,6 +1097,7 @@ AllocCaptStorage(TclRegexp *regexpPtr)
 		(char*)reStorage->matches, reStorage->matchSize);
 	}
     }
+
 #endif
 }
 
