@@ -1346,10 +1346,6 @@ TclFreeObj(
 {
     const Tcl_ObjType *typePtr = objPtr->typePtr;
 
-    if (objPtr->length == 40) {
-	int i = 0;
-	i++;
-    }
     /*
      * Firstly check special cases where string rep could be shared with
      * objects internal representation,
