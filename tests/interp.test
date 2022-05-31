@@ -3511,9 +3511,9 @@ test interp-37.1 {safe interps and min() and max(): Bug 2895741} -setup {
 test interp-37.11 {interp regexp} {
     list [catch {interp regexp} msg] $msg
 } {1 {wrong # args: should be "interp regexp path ?type?"}}
-test interp-37.12 {interp regexp} {
+test interp-37.12 {interp regexp} -body {
     list [catch {interp regexp {} invalid} msg] $msg
-} {1 {bad type "invalid": must be classic or pcre}}
+} -match glob -result {1 {bad type "invalid": *}}
 test interp-37.13 {interp regexp} {
     list [catch {interp regexp {} classic bogus} msg] $msg
 } {1 {wrong # args: should be "interp regexp path ?type?"}}
