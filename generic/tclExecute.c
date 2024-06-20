@@ -16,6 +16,7 @@
 
 #include "tclInt.h"
 #include "tclCompile.h"
+#include "tclRegexp.h"
 #include "tommath.h"
 
 #include <math.h>
@@ -4506,6 +4507,7 @@ TclExecuteByteCode(
 	valuePtr = OBJ_AT_TOS;		/* String */
 	value2Ptr = OBJ_UNDER_TOS;	/* Pattern */
 
+	cflags = TCL_REG_COMPILE_UNSHIFT(cflags); /* byte to int */
 	regExpr = Tcl_GetRegExpFromObj(interp, value2Ptr, cflags);
 	if (regExpr == NULL) {
 	    match = -1;
@@ -4514,7 +4516,7 @@ TclExecuteByteCode(
 	}
 
 	/*
-	 * Adjustment is 2 due to the nocase byte
+	 * Adjustment is 2 due to the cflags byte
 	 */
 
 	if (match < 0) {

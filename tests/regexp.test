@@ -17,6 +17,10 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 }
 
 testConstraint exec [llength [info commands exec]]
+testConstraint pcre [expr {[interp regexp {}] eq "pcre"}]
+testConstraint classic [expr {[interp regexp {}] eq "classic"}]
+# all known bugs are fixed in PCRE engine, thus disable constraint if PCRE used:
+testConstraint knownBug [expr {[testConstraint knownBug] || [interp regexp {}] ne "classic"}]
 
 catch {unset foo}
 test regexp-1.1 {basic regexp operation} {
@@ -167,6 +171,22 @@ test regexp-3.8b {-indices by multi-byte utf-8, from -start position} {
 	[regexp -inline -indices -start 4 {(\w+)-(\w+)} \
 	"gr\u00FC\u00DF-\u043F\u0440\u0438\u0432\u0435\u0442"]
 } {{{3 10} {3 3} {5 10}} {}}
+test regexp-3.8m {getting substrings back from regexp (multi-byte utf capability)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -indices {(\w)(b)?([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {1 2} {1 1} {-1 -1} {2 2}}
+test regexp-3.8m2 {getting substrings back from regexp (multi-byte utf capability)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 2 -indices {(\w)(b)?([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {3 4} {3 3} {-1 -1} {4 4}}
+test regexp-3.8m3 {getting substrings back from regexp (multi-byte utf capability, start/indices)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 3 -indices {([[:upper:]])(b)?(\w)} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} {1 {4 5} {4 4} {-1 -1} {5 5}}
+test regexp-3.8m4 {getting substrings back from regexp (multi-byte utf capability, start)} {
+    set foo 1; set f2 1; set f3 1; set f4 1
+    list [regexp -start 3 {([[:upper:]])(b)?(\w)} a\xe4\xc4\xe4\xdc\xfcz foo f2 f3 f4] $foo $f2 $f3 $f4
+} [list 1 \xdc\xfc \xdc {} \xfc]
 
 test regexp-4.1 {-nocase option to regexp} {
     regexp -nocase foo abcFOo
@@ -236,13 +256,13 @@ test regexp-6.2 {regexp errors} {
 } {1 {wrong # args: should be "regexp ?switches? exp string ?matchVar? ?subMatchVar subMatchVar ...?"}}
 test regexp-6.3 {regexp errors} {
     list [catch {regexp -gorp a} msg] $msg
-} {1 {bad switch "-gorp": must be -all, -about, -indices, -inline, -expanded, -line, -linestop, -lineanchor, -nocase, -start, or --}}
-test regexp-6.4 {regexp errors} {
+} {1 {bad switch "-gorp": must be -all, -about, -indices, -inline, -expanded, -line, -linestop, -lineanchor, -nocase, -start, -type, or --}}
+test regexp-6.4 {regexp errors} -body {
     list [catch {regexp a( b} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
-test regexp-6.5 {regexp errors} {
-    list [catch {regexp a( b} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
+} -match glob -result {1 {couldn't compile*}}
+test regexp-6.5 {regexp errors} -body {
+    list [catch {regexp a) b} msg] $msg
+} -match glob -result {1 {couldn't compile*}}
 test regexp-6.6 {regexp errors} {
     list [catch {regexp a a f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1 f1} msg] $msg
 } {0 1}
@@ -316,6 +336,18 @@ test regexp-7.17 {regsub utf compliance} {
     regsub a\u4e4eb xyza\u4e4ebijka\u4e4ebpqr 555 bar
     list [string compare $foo $bar] [regexp 4 $bar]
 } {0 0}
+test regexp-7.17m {regsub multi-byte utf capability} {
+    regsub {(..)(\w)(.)(\w)(..)} a\xe4\xc4\xe4\xdc\xfcz {\1-\2-\3-\4-\5}
+} "a\xe4-\xc4-\xe4-\xdc-\xfcz"
+test regexp-7.18m {regsub multi-byte utf capability} {
+    regsub -all {\w{2}(?=\w)} a\xe4\xc4\xe4\xdc\xfcz {\0-}
+} "a\xe4-\xc4\xe4-\xdc\xfc-z"
+test regexp-7.18m2 {regsub multi-byte utf capability} {
+    regsub -all -start 2 {\w{2}(?=\w)} a\xe4\xc4\xe4\xdc\xfcz {\0-}
+} "a\xe4\xc4\xe4-\xdc\xfc-z"
+test regexp-7.18m3 {regsub multi-byte utf capability} {
+    regsub -all -start 2 {\w{2}} \u043f\u0440\u0438\u0432\u0435\u0442 {=\0-}
+} "\u043f\u0440=\u0438\u0432-=\u0435\u0442-"
 
 test regexp-8.1 {case conversion in regsub} {
     list [regsub -nocase a(a+) xaAAaAAay & foo] $foo
@@ -402,10 +434,10 @@ test regexp-11.4 {regsub errors} {
 } {1 {wrong # args: should be "regsub ?switches? exp string subSpec ?varName?"}}
 test regexp-11.5 {regsub errors} {
     list [catch {regsub -gorp a b c} msg] $msg
-} {1 {bad switch "-gorp": must be -all, -nocase, -expanded, -line, -linestop, -lineanchor, -start, or --}}
-test regexp-11.6 {regsub errors} {
+} {1 {bad switch "-gorp": must be -all, -nocase, -expanded, -line, -linestop, -lineanchor, -start, -type, or --}}
+test regexp-11.6 {regsub errors} -body {
     list [catch {regsub -nocase a( b c d} msg] $msg
-} {1 {couldn't compile regular expression pattern: parentheses () not balanced}}
+} -match glob -result {1 {couldn't compile*}}
 test regexp-11.7 {regsub errors} {
     catch {unset f1}
     set f1 44
@@ -499,8 +531,10 @@ test regexp-15.5 {regexp -start, over end of string} {
     list [regexp -start [string length 1abc2de3] {\d} 1abc2de3 x] [info exists x]
 } {0 0}
 test regexp-15.6 {regexp -start, loss of ^$ behavior} {
-    list [regexp -start 2 {^$} {}]
-} {0}
+    set f1 -
+    list [regexp -start 2 {^$} {}] [regexp -indices -start 2 {^$} {} f1] $f1 \
+	 [regexp -start 2 {^.*$} {}] [regexp -indices -start 2 {^.*$} {} f1] $f1
+} {0 0 - 0 0 -}
 test regexp-15.7 {regexp -start, double option} {
     regexp -start 2 -start 0 a abc
 } 1
@@ -528,11 +562,34 @@ test regexp-16.3 {regsub -start} {
     catch {unset x}
     list [regsub -all -start 3 {z} hello {/&} x] $x
 } {0 hello}
-test regexp-16.4 {regsub -start, \A behavior} {
-    set out {}
-    lappend out [regsub -start 0 -all {\A(\w)} {abcde} {/\1} x] $x
-    lappend out [regsub -start 2 -all {\A(\w)} {abcde} {/\1} x] $x
+test regexp-16.4.1 {regsub -start, \A behavior} {classic} {
+    list [regsub -start 0 -all {\A(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 -all {\A(\w)} {abcde} {/\1} x] $x
 } {5 /a/b/c/d/e 3 ab/c/d/e}
+test regexp-16.4.2 {regsub -start, \G behavior} {pcre} {
+    # PCRE differentiate \A from \G assertions (\A is true only at begin, thus by first match):
+    list [regsub -start 0 -all {\G(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 -all {\G(\w)} {abcde} {/\1} x] $x
+} {5 /a/b/c/d/e 3 ab/c/d/e}
+test regexp-16.4.3 {regsub -start, \A behavior} {pcre} {
+    # PCRE differentiate \A from \G assertions (\A is true only at begin, thus by first match):
+    list [regsub -start 0 -all {\A(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 -all {\A(\w)} {abcde} {/\1} x] $x
+} {1 /abcde 0 abcde}
+test regexp-16.4.4 {regsub once -start, \A behavior} {classic} {
+    list [regsub -start 0 {\A(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 {\A(\w)} {abcde} {/\1} x] $x
+} {1 /abcde 1 ab/cde}
+test regexp-16.4.5 {regsub once -start, \G behavior} {pcre} {
+    # PCRE differentiate \A from \G assertions (\A is true only at begin, thus by first match):
+    list [regsub -start 0 {\G(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 {\G(\w)} {abcde} {/\1} x] $x
+} {1 /abcde 1 ab/cde}
+test regexp-16.4.6 {regsub once -start, \A behavior} {pcre} {
+    # PCRE differentiate \A from \G assertions (\A is true only at begin, thus by first match):
+    list [regsub -start 0 {\A(\w)} {abcde} {/\1} x] $x \
+	[regsub -start 2 {\A(\w)} {abcde} {/\1} x] $x
+} {1 /abcde 0 abcde}
 test regexp-16.5 {regsub -start, double option} {
     list [regsub -start 2 -start 0 a abc c x] $x
 } {1 cbc}
@@ -555,6 +612,18 @@ test regexp-17.2 {regexp -inline} {
 test regexp-17.3 {regexp -inline -indices} {
     regexp -inline -indices (b) ababa
 } {{1 1} {1 1}}
+test regexp-17.3m {regexp -indices (multi-byte utf capability)} {
+    regexp -inline -indices {..(\w).(\w)..} a\xe4\xc4\xe4\xdc\xfcz
+} {{0 6} {2 2} {4 4}}
+test regexp-17.3m2 {regexp -indices -start (multi-byte utf capability)} {
+    regexp -start 2 -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz
+} {{3 4} {3 3} {4 4}}
+test regexp-17.3m3 {regexp -indices -all (multi-byte utf capability)} {
+    regexp -all -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfcz
+} {{1 2} {1 1} {2 2} {3 4} {3 3} {4 4}}
+test regexp-17.3m4 {regexp -indices -all -start (multi-byte utf capability)} {
+    regexp -all -start 2 -inline -indices {(\w)([[:upper:]])} a\xe4\xc4\xe4\xdc\xfc\xc4\xe4z
+} {{3 4} {3 3} {4 4} {5 6} {5 5} {6 6}}
 test regexp-17.4 {regexp -inline} {
     regexp -inline {\w(\d+)\w} "   hello 23 there456def "
 } {e456d 456}
@@ -567,7 +636,13 @@ test regexp-17.6 {regexp -inline no matches} {
 test regexp-17.7 {regexp -inline, no matchvars allowed} {
     list [catch {regexp -inline b abc match} msg] $msg
 } {1 {regexp match variables not allowed when using -inline}}
-
+test regexp-17.8 {regexp no captures, match only (multiple groups in RE)} {
+    list \
+	[regexp      {^(a)(b)} " ab ab "] \
+	[regexp -all {^(a)(b)} " ab ab "] \
+	[regexp      {(a)(b)}  " ab ab "] \
+	[regexp -all {(a)(b)}  " ab ab "]
+} {0 0 1 2}
 test regexp-18.1 {regexp -all} {
     regexp -all b bbbbb
 } {5}
@@ -632,9 +707,12 @@ test regexp-20.1 {regsub shared object shimmering} {
     regsub $a $c $b d 
     list $d [string length $d] [string bytelength $d]
 } {abcdefghijklmnopqurstuvwxyz0123456789 37 37}
-test regexp-20.2 {regsub shared object shimmering with -about} {
+# todo remove classic constraint if get impllemented:
+test regexp-20.2 {regsub shared object shimmering with -about} -constraints {
+    classic
+} -body {
     eval regexp -about abc
-} {0 {}}
+} -result {0 {}}
 
 test regexp-21.1 {regsub works with empty string} {
     regsub -- ^ {} foo
@@ -727,7 +805,7 @@ test regexp-22.4 {Bug 3606139} -setup {
 	[a 668]([a 55])[a 668]([a 55])[a 668]([a 55])[a 511]] {}] a
 } -cleanup {
     rename a {}
-} -returnCodes 1 -result {couldn't compile regular expression pattern: nfa has too many states}
+} -returnCodes error -match glob -result {couldn't compile *}
 test regexp-22.5 {Bug 3610026} -setup {
     set e {}
     set cp 99
@@ -738,7 +816,7 @@ test regexp-22.5 {Bug 3610026} -setup {
     regexp -about $e
 } -cleanup {
     unset -nocomplain e cp
-} -returnCodes error  -match glob -result {*too many colors*}
+} -returnCodes error -match glob -result {couldn't compile *}
 test regexp-22.6 {Bug 6585b21ca8} {
     expr {[regexp {(\w).*?\1} Programmer m] ? $m : "<NONE>"}
 } rogr
@@ -751,20 +829,34 @@ test regexp-23.1 {regexp -all and -line} {
 	[regexp -all -inline -indices -line -- {^$} $string] \
 	[regexp -all -inline -indices -line -- {$} $string]
 } {{{0 -1}} {{0 -1}} {{0 -1}}}
-test regexp-23.2 {regexp -all and -line} {
+test regexp-23.2 {regexp -all and -line} {knownBug} {
     set string "\n"
-    list \
+    # first not multiline (whole string), thus no match for ^$
+    # second ^, $ matches newlines, thus always before/after '\n'
+    list [list \
+	[regexp -all -inline -indices -- {^} $string] \
+	[regexp -all -inline -indices -- {^$} $string] \
+	[regexp -all -inline -indices -- {$} $string]
+    ] [list \
 	[regexp -all -inline -indices -line -- {^} $string] \
 	[regexp -all -inline -indices -line -- {^$} $string] \
 	[regexp -all -inline -indices -line -- {$} $string]
-} {{{0 -1}} {{0 -1}} {{0 -1}}}
-test regexp-23.3 {regexp -all and -line} {
+    ]
+} [list {{{0 -1}} {} {{1 0}}} [lrepeat 3 {{0 -1} {1 0}}]]
+test regexp-23.3 {regexp -all and -line} {knownBug} {
     set string "\n\n"
-    list \
+    # first not multiline (whole string), thus no match for ^$
+    # second ^, $ matches newlines, thus always match each '\n'
+    list [list \
+	[regexp -all -inline -indices -- {^} $string] \
+	[regexp -all -inline -indices -- {^$} $string] \
+	[regexp -all -inline -indices -- {$} $string]
+    ] [list \
 	[regexp -all -inline -indices -line -- {^} $string] \
 	[regexp -all -inline -indices -line -- {^$} $string] \
 	[regexp -all -inline -indices -line -- {$} $string]
-} {{{0 -1} {1 0}} {{0 -1} {1 0}} {{0 -1} {1 0}}}
+    ]
+} [list {{{0 -1}} {} {{2 1}}} [lrepeat 3 {{0 -1} {1 0} {2 1}}]]
 test regexp-23.4 {regexp -all and -line} {
     set string "a"
     list \
@@ -971,20 +1063,105 @@ test regexp-26.8 {Tcl bug 2826551: diff regexp with -line option} {
 } "{@1\n2\n+3\n} {@4\n-5\n+6\n7\n} {@8\n9\n}"
 test regexp-26.9 {Tcl bug 2826551: diff regexp with embedded -line option} {
     set data "@1\n2\n+3\n@4\n-5\n+6\n7\n@8\n9\n"
-    regexp -all -inline {(?n)^@.*\n(?:[^@].*\n?)*} $data
+    if {[interp regexp {}] eq "classic"} {
+	regexp -all -inline {(?n)^@.*\n(?:[^@].*\n?)*} $data
+    } else {
+    	regexp -all -inline {(?m-s)^@.*\n(?:[^@].*\n?)*} $data
+    }
 } "{@1\n2\n+3\n} {@4\n-5\n+6\n7\n} {@8\n9\n}"
-test regexp-26.10 {regexp with -line option} {
-    regexp -all -inline -line -- {a*} "a\n"
-} {a {}}
-test regexp-26.11 {regexp without -line option} {
-    regexp -all -inline -- {a*} "a\n"
-} {a {}}
-test regexp-26.12 {regexp with -line option} {
-    regexp -all -inline -line -- {a*} "b\n"
-} {{} {}}
-test regexp-26.13 {regexp without -line option} {
-    regexp -all -inline -- {a*} "b\n"
-} {{} {}}
+
+test regexp-26.10 {not anchored regexp with -line option} {knownBug} {
+    # 3 matches should be found (a, empty for '\n' and empty hereafter),
+    # similar to `regsub -all -line {a*} a\n *` which replaces 3 matches "**\n*":
+    list \
+	[regexp -all -inline -line -- {a*} "a\n"] \
+	[regexp -all -inline -line -indices -- {a*} "a\n"] \
+	[regexp -all -inline -- {(?m)a*} "a\n"] \
+	[regexp -all -inline -indices -- {(?m)a*} "a\n"]
+} [lrepeat 2 {a {} {}} {{0 0} {1 0} {2 1}}]
+test regexp-26.11.1 {not anchored regexp without -line option} {knownBug} {
+    # 3 matches should be found (a, empty for '\n' and empty hereafter),
+    # similar to `regsub -all -line {a*} a\n *` which replaces 3 matches "**\n*".
+    # Note that it's not anchored - therefore it works regardless -line option.
+    # See the difference in anchored tests - 26.14 - 26.17.
+    list \
+	[regexp -all -inline -- {a*} "a\n"] \
+	[regexp -all -inline -indices -- {a*} "a\n"]
+} {{a {} {}} {{0 0} {1 0} {2 1}}}
+test regexp-26.12 {not anchored regexp with -line option} {knownBug} {
+    list \
+	[regexp -all -inline -line -- {a*} "b\n"] \
+	[regexp -all -inline -line -indices -- {a*} "b\n"]
+} {{{} {} {}} {{0 -1} {1 0} {2 1}}}
+test regexp-26.13 {not anchored regexp without -line option} {knownBug} {
+    list \
+	[regexp -all -inline -- {a*} "b\n"] \
+	[regexp -all -inline -indices -- {a*} "b\n"]
+} {{{} {} {}} {{0 -1} {1 0} {2 1}}}
+
+test regexp-26.14 {anchored regexp with -line option} {
+    list \
+	[regexp -all -inline -line -- {^a*} "a\n"] \
+	[regexp -all -inline -line -indices -- {^a*} "a\n"]
+} {{a {}} {{0 0} {2 1}}}
+test regexp-26.14m {anchored regexp with -line option (multi-byte utf capability)} {
+    list \
+    [regexp -all -inline -line -- {^\w*} "\xe4\n"] \
+    [regexp -all -inline -line -indices -- {^\w*} "\xe4\n"]
+} [list [list \xe4 {}] {{0 0} {2 1}}]
+test regexp-26.15.1 {anchored regexp without -line option} {
+    list \
+	[regexp -all -inline -- {^a*} "a\n"] \
+	[regexp -all -inline -indices -- {^a*} "a\n"]
+} {a {{0 0}}}
+test regexp-26.15.2 {anchored regexp disabled miltiline} {pcre} {
+    # inverse multiline (option -line disabled), pcre only variant:
+    list \
+	[regexp -all -inline -line -- {(?-m)^a*} "a\n"] \
+	[regexp -all -inline -line -indices -- {(?-m)^a*} "a\n"]
+} {a {{0 0}}}
+test regexp-26.16 {anchored regexp with -line option} {
+    list \
+	[regexp -all -inline -line -- {^a*} "b\n"] \
+	[regexp -all -inline -line -indices -- {^a*} "b\n"]
+} {{{} {}} {{0 -1} {2 1}}}
+test regexp-26.17 {anchored regexp without -line option} {
+    list \
+	[regexp -all -inline -- {^a*} "b\n"] \
+	[regexp -all -inline -indices -- {^a*} "b\n"]
+} {{{}} {{0 -1}}}
+
+test regexp-27.1 {search in byte-array} {
+    list [regexp -start 2 -inline .{2} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -start 2 -inline -indices .{2} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 2 -inline {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 2 -inline -indices {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 0 -inline {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 0 -inline -indices {\xd1\x82} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]]
+} [list [string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 2 3] \
+	{{2 3}} \
+	[string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 6 7] \
+	{{6 7}} \
+	[lrepeat 2 [string range [encoding convertto utf-8 \u0442\u0435\u0441\u0442] 6 7]] \
+	{{0 1} {6 7}} \
+]
+test regexp-27.2 {search in byte-array} {
+    list [regexp -all -inline {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -inline -indices {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 3 -inline {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]] \
+	 [regexp -all -start 3 -inline -indices {\w} [encoding convertto utf-8 \u0442\u0435\u0441\u0442]]
+} [list [list \xd1 \xd0 \xb5 \xd1 \xd1] \
+	{{0 0} {2 2} {3 3} {4 4} {6 6}} \
+	[list \xb5 \xd1 \xd1] \
+	{{3 3} {4 4} {6 6}} \
+]
+test regexp-27.3 {regression test, support of \uXXXX escape sequences} {
+    list [regexp -all -inline {\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -all -indices -inline {\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -inline {\u0442..\u0442} \u0442\u0435\u0441\u0442] \
+	 [regexp -indices -inline {\u0442..\u0442} \u0442\u0435\u0441\u0442]
+} [list [list \u0442 \u0442] {{0 0} {3 3}} \u0442\u0435\u0441\u0442 {{0 3}}]
+
 
 # cleanup
 ::tcltest::cleanupTests
