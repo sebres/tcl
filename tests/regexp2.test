@@ -29,11 +29,13 @@ set err [catch {
   foreach reeng {classic pcre dfa} {
 
     proc _test_reeng_available {} {
+      variable org_reeng
       variable reeng
       interp regexp {} $reeng
       # note we should not use simple regexp here (to avoid compile it via TclReToGlob to the glob expr):
       if {[catch { regexp -- {^(_)(?!_)$} {_} } errMsg]} {
         puts "ignore test of engine \"$reeng\": $errMsg"
+        interp regexp {} $org_reeng
         return 0
       }
       return 1

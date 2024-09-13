@@ -3121,7 +3121,8 @@ TclCompileRegexpCmd(
 	/*
 	 * Pass correct RE compile flags.  We use only Int1 (8-bit), but
 	 * that handles all the flags we want to pass.
-	 * Note that TCL_REG_PCRE/TCL_REG_EXPLTYPE will be mapped to TCL_REG_ADVANCED.
+	 * Note that TCL_REG_PCRE/TCL_REG_EXPLTYPE will be mapped to TCL_REG_ADVANCED,
+	 * because INST_REGEXP always uses TCL_REG_ADVANCED flag.
 	 * Don't use TCL_REG_NOSUB as we may have backrefs.
 	 */
 	cflags = TCL_REG_COMPILE_SHIFT(cflags); /* int to byte */
@@ -4319,9 +4320,14 @@ TclCompileSwitchCmd(
 		     * or capture vars.
 		     */
 
-		    int cflags = TCL_REG_ADVANCED
-			    | (noCase ? TCL_REG_NOCASE : 0);
-
+		    int cflags = (noCase ? TCL_REG_NOCASE : 0);
+		    /*
+		     * Pass correct RE compile flags.  We use only Int1 (8-bit), but
+		     * that handles all the flags we want to pass.
+		     * Note that TCL_REG_PCRE/TCL_REG_EXPLTYPE will be mapped to TCL_REG_ADVANCED,
+		     * because INST_REGEXP always uses TCL_REG_ADVANCED flag.
+		     */
+		    cflags = TCL_REG_COMPILE_SHIFT(cflags); /* int to byte */
 		    TclEmitInstInt1(INST_REGEXP, cflags, envPtr);
 		}
 		break;
