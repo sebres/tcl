@@ -554,27 +554,43 @@ typedef void (Tcl_ThreadCreateProc) _ANSI_ARGS_((ClientData clientData));
  * Flag values passed to Tcl_GetRegExpFromObj.
  */
 
-#define	TCL_REG_BASIC		000000	/* BREs (convenience). */
-#define	TCL_REG_EXTENDED	000001	/* EREs. */
-#define	TCL_REG_ADVF		000002	/* Advanced features in EREs. */
-#define	TCL_REG_ADVANCED	000003	/* AREs (which are also EREs). */
-#define	TCL_REG_QUOTE		000004	/* No special characters, none. */
-#define	TCL_REG_NOCASE		000010	/* Ignore case. */
-#define	TCL_REG_NOSUB		000020	/* Don't care about subexpressions. */
-#define	TCL_REG_EXPANDED	000040	/* Expanded format, white space &
+#define	TCL_REG_BASIC	    0x00000000	/* BREs (convenience). */
+#define	TCL_REG_EXTENDED    0x00000001	/* EREs. */
+#define	TCL_REG_ADVF	    0x00000002	/* Advanced features in EREs. */
+#define	TCL_REG_ADVANCED    0x00000003	/* AREs (which are also EREs). */
+#define	TCL_REG_QUOTE	    0x00000004	/* No special characters, none. */
+#define	TCL_REG_NOCASE	    0x00000008	/* Ignore case. */
+#define	TCL_REG_NOSUB	    0x00000010	/* Don't care about subexpressions. */
+#define	TCL_REG_EXPANDED    0x00000020	/* Expanded format, white space &
 					 * comments. */
-#define	TCL_REG_NLSTOP		000100  /* \n doesn't match . or [^ ] */
-#define	TCL_REG_NLANCH		000200  /* ^ matches after \n, $ before. */
-#define	TCL_REG_NEWLINE		000300  /* Newlines are line terminators. */
-#define	TCL_REG_CANMATCH	001000  /* Report details on partial/limited
+#define	TCL_REG_NLSTOP	    0x00000040  /* \n doesn't match . or [^ ] */
+#define	TCL_REG_NLANCH	    0x00000080  /* ^ matches after \n, $ before. */
+#define	TCL_REG_NEWLINE	    0x000000C0  /* Newlines are line terminators. */
+#define	TCL_REG_CANMATCH    0x00000200  /* Report details on partial/limited
 					 * matches. */
+#define	TCL_REG_EXPLTYPE    0x10000000	/* Explicit type (avoid usage of
+					 * default interp engine, mean it specified as parameter) */
+#define	TCL_REG_PCRE	    0x20000000	/* Make sure it doesn't conflict with
+					 * existing TCL_REG_* or PCRE_* bits */
+#define	TCL_REG_PCDFA	    0x40000000	/* DFA variant of PCRE engine */
+
+/* Following two macros used to supply TCL_REG_PCRE, TCL_REG_PCDFA and TCL_REG_EXPLTYPE
+ * to INST_REGEXP over one byte op (instead of first 3 bits, that currently never compiled 
+ * e. g. TCL_REG_ADVANCED, that is always set in compiled variant) */
+#define	TCL_REG_COMPILE_SHIFT(v) ((v&~0x70000000)|((v>>28)&0x07))
+#define	TCL_REG_COMPILE_UNSHIFT(v) ((v&~0x07)|((v&0x07)<<28)|TCL_REG_ADVANCED)
 
 /*
- * Flags values passed to Tcl_RegExpExecObj.
+ * Flags values passed to Tcl_RegExpExecObj and TclRegexp*.
  */
 
-#define	TCL_REG_NOTBOL	0001	/* Beginning of string does not match ^.  */
-#define	TCL_REG_NOTEOL	0002	/* End of string does not match $. */
+#define	TCL_REG_NOTBOL	    0x00000001	/* Beginning of string does not match ^.  */
+#define	TCL_REG_NOTEOL	    0x00000002	/* End of string does not match $. */
+#define	TCL_REG_RETALL	    0x00000010	/* Return all occurences (repeat as long as matches). */
+#define	TCL_REG_RETIDX	    0x00000020	/* Return indices of matches (instead of strings). */
+#define	TCL_REG_DOINLINE    0x00000040	/* Return matches as a list (instead of placing in variables). */
+#define	TCL_REG_BYTEOFFS    0x01000000	/* Consider offsets in bytes instead of in chars (PCRE only) */
+
 
 /*
  * Structures filled in by Tcl_RegExpInfo. Note that all offset values are
