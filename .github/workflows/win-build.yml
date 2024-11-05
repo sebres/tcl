@@ -5,6 +5,7 @@ on:
     - "main"
     - "core-8-branch"
     - "core-8-6-branch"
+    - "ci-*"
     tags:
     - "core-**"
 permissions:
@@ -55,7 +56,24 @@ jobs:
              throw "nmake exit code: $lastexitcode"
           }
         timeout-minutes: 30
+  gcc_setup:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+        working-directory: win
+    steps:
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: git mingw-w64-x86_64-toolchain make
+        timeout-minutes: 10
+      - name: Checkout
+        uses: actions/checkout@v4
+        timeout-minutes: 5
   gcc:
+    needs: gcc_setup
     runs-on: windows-2022
     defaults:
       run:
@@ -71,15 +89,6 @@ jobs:
           - "--enable-symbols=all"
     # Using powershell means we need to explicitly stop on failure
     steps:
-      - name: Install MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: git mingw-w64-x86_64-toolchain make
-        timeout-minutes: 10
-      - name: Checkout
-        uses: actions/checkout@v4
-        timeout-minutes: 5
       - name: Prepare
         run: |
           touch tclStubInit.c tclOOStubInit.c
@@ -92,11 +101,15 @@ jobs:
           CFGOPT: --enable-64bit ${{ matrix.config }}
         timeout-minutes: 5
       - name: Build
-        run: make all
+        run: make -j4 all
         timeout-minutes: 5
       - name: Build Test Harness
-        run: make tcltest
+        run: make -j4 tcltest
         timeout-minutes: 5
+      - name: Info
+        run: |
+          ulimit -a || echo 'get limit failed'
+          echo 'puts exe:\t[info nameofexecutable]\nver:\t[info patchlevel]\t[if {![catch tcl::build-info ret]} {set ret}]\nlib:\t[info library]\nplat:\t[lsort -dictionary -stride 2 [array get tcl_platform]]' | make runtest || echo 'get info failed'
       - name: Run Tests
         run: make test
         timeout-minutes: 30
